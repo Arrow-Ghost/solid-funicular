@@ -32,9 +32,10 @@ export class VoiceAgent {
     }
 
     this.recognition = new SpeechRecognition();
-    this.recognition.continuous = false; // Single command per activation for high precision
-    this.recognition.interimResults = true;
-    this.recognition.lang = 'en-US';
+    this.recognition.continuous = false; // Single utterance for clean on-device parsing
+    this.recognition.interimResults = false; // Avoids continuous streaming WebSocket drops
+    this.recognition.maxAlternatives = 1;
+    this.recognition.lang = navigator.language || 'en-US';
 
     this.recognition.onstart = () => {
       this.isListening = true;
@@ -43,21 +44,20 @@ export class VoiceAgent {
     };
 
     this.recognition.onresult = (event) => {
-      let interim = '';
       let finalTranscript = '';
-
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
           finalTranscript += event.results[i][0].transcript;
         } else {
-          interim += event.results[i][0].transcript;
+          finalTranscript += event.results[i][0].transcript;
         }
       }
 
-      this.onTranscript({ interim, final: finalTranscript });
+      const trimmed = finalTranscript.trim();
+      this.onTranscript({ interim: '', final: trimmed });
 
-      if (finalTranscript) {
-        this.processSpokenCommand(finalTranscript.trim());
+      if (trimmed) {
+        this.processSpokenCommand(trimmed);
       }
     };
 

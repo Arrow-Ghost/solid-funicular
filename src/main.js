@@ -591,6 +591,27 @@ function initEventListeners() {
     voiceAgent.toggleListening();
   });
 
+  // Cyber Command Input Bar (Built-in on-device search)
+  const dockCmdInput = document.getElementById('dockCmdInput');
+  const dockCmdSubmitBtn = document.getElementById('dockCmdSubmitBtn');
+
+  function handleCommandSubmit() {
+    const text = (dockCmdInput.value || '').trim();
+    if (!text) return;
+    dockCmdInput.value = '';
+    voiceAgent.processSpokenCommand(text);
+  }
+
+  if (dockCmdSubmitBtn && dockCmdInput) {
+    dockCmdSubmitBtn.addEventListener('click', handleCommandSubmit);
+    dockCmdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleCommandSubmit();
+      }
+    });
+  }
+
   // Scan Trigger Button
   scanBtn.addEventListener('click', () => {
     performScan();

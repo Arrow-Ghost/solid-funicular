@@ -372,6 +372,56 @@ html, body {
   to { transform: scale(1.12); }
 }
 
+/* Cyber Command Text Input Bar */
+.dock-cmd-bar {
+  display: flex;
+  align-items: center;
+  background: rgba(7, 10, 18, 0.75);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px 4px 3px 14px;
+  transition: all 0.2s ease;
+}
+
+.dock-cmd-bar:focus-within {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 12px var(--neon-cyan-glow);
+}
+
+.dock-cmd-bar input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  width: 180px;
+}
+
+.dock-cmd-bar input::placeholder {
+  color: var(--text-muted);
+}
+
+.dock-cmd-bar button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 240, 255, 0.15);
+  border: 1px solid var(--border-cyan);
+  color: var(--neon-cyan);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dock-cmd-bar button:hover {
+  background: var(--neon-cyan);
+  color: #040711;
+  transform: scale(1.05);
+}
+
 /* Scan Trigger Button */
 .scan-btn {
   display: flex;
