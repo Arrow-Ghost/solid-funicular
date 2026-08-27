@@ -9,6 +9,7 @@ import { GeminiVisionClient } from './geminiVision.js';
 import { YoloVisionDetector } from './yoloVision.js';
 import { VoiceAgent } from './voiceAgent.js';
 import { LocalWhisperAgent } from './whisperVoiceAgent.js';
+import { SceneNarrator } from './sceneNarrator.js';
 import { HudRenderer } from './hudRenderer.js';
 
 // DOM Elements
@@ -28,6 +29,14 @@ const engineLabel = document.getElementById('engineLabel');
 const voiceBanner = document.getElementById('voiceBanner');
 const voiceCommandText = document.getElementById('voiceCommandText');
 const voiceResponseText = document.getElementById('voiceResponseText');
+
+// Narrator Elements
+const narratorToggleBtn = document.getElementById('narratorToggleBtn');
+const narratorIcon = document.getElementById('narratorIcon');
+const narratorLabel = document.getElementById('narratorLabel');
+const narrationBanner = document.getElementById('narrationBanner');
+const narrationText = document.getElementById('narrationText');
+let narrationBannerTimeout = null;
 
 // Floating Dock Controls
 const micBtn = document.getElementById('micBtn');
@@ -124,6 +133,37 @@ const hudRenderer = new HudRenderer(canvasEl, videoEl, {
   onSelect: handleObjectSelected
 });
 
+// Automatic Live Scene Narrator
+const sceneNarrator = new SceneNarrator({
+  voiceAgent: voiceAgent,
+  minIntervalMs: 7000,
+  onNarration: ({ text, isStatus }) => {
+    if (narrationBanner && narrationText) {
+      narrationBanner.classList.remove('hidden');
+      narrationText.textContent = text;
+
+      if (narrationBannerTimeout) clearTimeout(narrationBannerTimeout);
+      narrationBannerTimeout = setTimeout(() => {
+        narrationBanner.classList.add('hidden');
+      }, 7500);
+    }
+  }
+});
+
+function updateNarratorUI() {
+  if (!narratorToggleBtn || !narratorLabel || !narratorIcon) return;
+  if (sceneNarrator.isEnabled) {
+    narratorToggleBtn.classList.add('active');
+    narratorLabel.textContent = 'NARRATING LIVE';
+    narratorIcon.textContent = '🔊';
+  } else {
+    narratorToggleBtn.classList.remove('active');
+    narratorLabel.textContent = 'NARRATE: OFF';
+    narratorIcon.textContent = '🗣️';
+    if (narrationBanner) narrationBanner.classList.add('hidden');
+  }
+}
+
 // Setup Settings Initial Values
 if (engineSelect) engineSelect.value = state.engine;
 apiKeyInput.value = geminiClient.getApiKey();
@@ -215,6 +255,9 @@ async function startYoloLoop() {
           latencyValueEl.textContent = `${result.latencyMs} ms (YOLO)`;
           totalDetectedCountEl.textContent = `${result.objects.length} Objects`;
 
+          // Evaluate real-time scene narration
+          sceneNarrator.evaluateScene(result.objects);
+
           // Throttle inventory list UI update to once every 1s
           const now = performance.now();
           if (now - state.lastInventoryUpdate > 1000) {
@@ -281,6 +324,9 @@ async function performGeminiScan() {
     totalDetectedCountEl.textContent = `${state.detectedObjects.length} Objects`;
 
     updateInventoryUI(state.detectedObjects);
+
+    // Evaluate scene narration with Gemini summary
+    sceneNarrator.evaluateScene(state.detectedObjects, result.scene_summary);
 
     if (state.detectedObjects.length > 0) {
       voiceAgent.playChime('detection_success');
@@ -353,6 +399,24 @@ function restartAutoScanTimer() {
  */
 async function handleVoiceCommand(cmd) {
   console.log('Processed voice command:', cmd);
+
+  const rawLower = (cmd.raw || '').toLowerCase();
+
+  // Voice narration toggle commands
+  if (rawLower.includes('start narrat') || rawLower.includes('auto narrat') || rawLower.includes('turn on narrat') || rawLower.includes('enable narrat')) {
+    sceneNarrator.isEnabled = true;
+    updateNarratorUI();
+    showVoiceBanner('Live Narrator', 'Live scene voice narration enabled.');
+    voiceAgent.speak('Live scene narration enabled. I will describe what I see.');
+    return;
+  }
+  if (rawLower.includes('stop narrat') || rawLower.includes('pause narrat') || rawLower.includes('turn off narrat') || rawLower.includes('disable narrat')) {
+    sceneNarrator.isEnabled = false;
+    updateNarratorUI();
+    showVoiceBanner('Live Narrator', 'Live scene voice narration paused.');
+    voiceAgent.speak('Live scene narration paused.');
+    return;
+  }
 
   if (cmd.type === 'TRIGGER_SCAN') {
     showVoiceBanner(`Command: "${cmd.raw}"`, 'Analyzing camera feed...');
@@ -625,6 +689,14 @@ function initEventListeners() {
       const next = state.engine === 'yolo' ? 'gemini' : 'yolo';
       setEngineMode(next);
       if (engineSelect) engineSelect.value = next;
+    });
+  }
+
+  // Narrator Toggle Pill in Header
+  if (narratorToggleBtn) {
+    narratorToggleBtn.addEventListener('click', () => {
+      sceneNarrator.toggle();
+      updateNarratorUI();
     });
   }
 

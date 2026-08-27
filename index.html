@@ -59,6 +59,11 @@
             <span id="engineIcon">⚡</span>
             <span id="engineLabel">YOLO (30 FPS)</span>
           </button>
+
+          <button class="telemetry-pill narrator-pill" id="narratorToggleBtn" title="Toggle Automatic Live Voice Narration of Detected Objects" style="cursor: pointer;">
+            <span id="narratorIcon">🗣️</span>
+            <span id="narratorLabel">NARRATE: OFF</span>
+          </button>
         </div>
 
         <!-- Header Actions -->
@@ -111,6 +116,15 @@
             <div class="voice-command-text" id="voiceCommandText">Listening for command...</div>
             <div class="voice-response-text" id="voiceResponseText">Say: "Where is the bottle?" or "Identify the plant"</div>
           </div>
+        </div>
+
+        <!-- Live Scene Narration Subtitle Banner -->
+        <div class="narration-banner hidden" id="narrationBanner">
+          <div class="narration-indicator">
+            <span class="narrator-dot"></span>
+            <span class="narrator-badge">LIVE NARRATION</span>
+          </div>
+          <div class="narration-text" id="narrationText">Observing your environment...</div>
         </div>
       </main>
 
