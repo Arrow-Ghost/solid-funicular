@@ -430,21 +430,35 @@ function handleVoiceTranscript({ interim, final }) {
  * Handle Voice Agent State Changes
  */
 function handleVoiceStateChange({ isListening, error }) {
+  const dockCmdInput = document.getElementById('dockCmdInput');
+  const dockCmdBar = document.getElementById('dockCmdBar');
+
   if (isListening) {
     micBtn.classList.add('listening');
     showVoiceBanner('Listening...', 'Ask to locate any object (e.g. "Where is the bottle?")');
   } else {
     micBtn.classList.remove('listening');
     if (error && error !== 'no-speech') {
-      let friendlyMsg = `Speech status: ${error}`;
       if (error === 'network') {
-        friendlyMsg = 'Browser could not reach speech recognition server. Check internet/VPN, or click prompt chips in Telemetry.';
+        // Browser/network blocks Chrome's cloud speech recognition socket
+        showVoiceBanner(
+          'Quick Locate Ready',
+          'Voice recognition is restricted on this network. Tap any Quick Find pill or type your object below!',
+          6000
+        );
+        if (dockCmdInput) {
+          dockCmdInput.focus();
+          dockCmdInput.placeholder = 'Type object (e.g. bottle) & Enter';
+        }
+        if (dockCmdBar) {
+          dockCmdBar.classList.add('glow-highlight');
+          setTimeout(() => dockCmdBar.classList.remove('glow-highlight'), 3600);
+        }
       } else if (error === 'not-allowed' || error === 'service-not-allowed') {
-        friendlyMsg = 'Microphone permission denied. Please allow microphone access in your browser address bar.';
+        showVoiceBanner('Microphone Permission', 'Please allow microphone access in your browser address bar.', 7000);
       } else if (error === 'audio-capture') {
-        friendlyMsg = 'No microphone detected or audio capture failed. Check your audio device.';
+        showVoiceBanner('Microphone Notice', 'No microphone detected or audio capture failed.', 7000);
       }
-      showVoiceBanner('Microphone Notice', friendlyMsg, 7000);
     }
   }
 }
@@ -635,6 +649,15 @@ function initEventListeners() {
   filterChips.forEach((chip) => {
     chip.addEventListener('click', () => {
       setFilterMode(chip.dataset.filter);
+    });
+  });
+
+  // Quick Target Strip Pills (100% On-Device Instant YOLO Search & Voice Response)
+  const quickTargetPills = document.querySelectorAll('.quick-target-pill');
+  quickTargetPills.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const target = pill.dataset.target;
+      voiceAgent.processSpokenCommand(`Where is the ${target}?`);
     });
   });
 
