@@ -593,14 +593,14 @@ function initEventListeners() {
   }
 
   // Speech / Mic Button: Toggle Microphone ON and OFF
-  micBtn.addEventListener('click', () => {
+  micBtn.addEventListener('click', async () => {
     // If companion is speaking, cancel immediately so user can talk
     if (voiceAgent && voiceAgent.isSpeaking) {
       voiceAgent.stopSpeaking();
     }
 
     // Toggle on-device microphone
-    const isNowListening = localWhisper.toggle();
+    const isNowListening = await localWhisper.toggle();
     if (isNowListening) {
       micBtn.classList.add('listening');
       micBtn.setAttribute('aria-pressed', 'true');

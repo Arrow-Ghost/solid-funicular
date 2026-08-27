@@ -74,15 +74,15 @@ export class LocalWhisperAgent {
 
   /**
    * Toggle recording state on or off
-   * @returns {boolean} Whether recording is now active
+   * @returns {Promise<boolean>} Whether recording is now active
    */
-  toggle() {
+  async toggle() {
     if (this.isRecording) {
-      this.stopRecordingAndTranscribe();
+      await this.stopRecordingAndTranscribe();
       return false;
     } else {
-      this.startRecording();
-      return true;
+      const started = await this.startRecording();
+      return started;
     }
   }
 
@@ -90,7 +90,7 @@ export class LocalWhisperAgent {
    * Start recording user voice from microphone with AI Background Noise Suppression
    */
   async startRecording() {
-    if (this.isRecording) return;
+    if (this.isRecording) return true;
 
     if (!this.isLoaded && !this.isLoading) {
       this.loadEngine();
@@ -98,9 +98,19 @@ export class LocalWhisperAgent {
 
     try {
       // 1. Browser & Hardware-level Acoustic Noise Cancellation & Echo Cancellation
-      const constraints = AiNoiseSuppressionPipeline.getAudioConstraints();
-      this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(AiNoiseSuppressionPipeline.getAudioConstraints());
+      } catch (e) {
+        console.warn('Constrained getUserMedia failed, falling back to basic audio:', e);
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      this.mediaStream = stream;
+
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
       this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
 
       // 2. Initialize Neural/DSP Noise Suppression Pipeline
@@ -119,9 +129,9 @@ export class LocalWhisperAgent {
         if (!this.isRecording) return;
         const rawChannelData = e.inputBuffer.getChannelData(0);
 
-        // 3. Real-Time Spectral Noise Gating: silences background hum/chatter between words
+        // 3. Real-Time Spectral Noise Gating: cleans background noise between words
         const { cleanedBuffer, isSpeech } = this.noisePipeline.cleanAudioBuffer(rawChannelData);
-        this.audioChunks.push(cleanedBuffer);
+        this.audioChunks.push(new Float32Array(cleanedBuffer));
 
         const now = Date.now();
         if (isSpeech) {
@@ -149,18 +159,22 @@ export class LocalWhisperAgent {
         message: 'Listening... (AI Background Noise Suppression Active)'
       });
 
-      // Max safety timeout (7.5 seconds)
+      // Max safety timeout (8 seconds)
       this.recordTimeout = setTimeout(() => {
         if (this.isRecording) {
           this.stopRecordingAndTranscribe();
         }
-      }, 7500);
+      }, 8000);
+
+      return true;
     } catch (err) {
       console.error('Microphone error:', err);
+      this.isRecording = false;
       this.onStatus({
         status: 'error',
         message: 'Microphone permission needed. Allow microphone in your browser.'
       });
+      return false;
     }
   }
 

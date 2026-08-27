@@ -213,8 +213,11 @@ export class VoiceAgent {
   /**
    * Speak a message aloud using Web SpeechSynthesis.
    */
-  speak(text) {
-    if (!this.ttsEnabled || !this.speechSynthesis) return;
+  speak(text, onEnd = null) {
+    if (!this.ttsEnabled || !this.speechSynthesis) {
+      if (onEnd) onEnd();
+      return;
+    }
 
     try {
       if (this.speechSynthesis.paused) {
@@ -246,6 +249,7 @@ export class VoiceAgent {
       this._speakingWatchdog = setTimeout(() => {
         this.isSpeaking = false;
         window.__activeSpeechUtterance = null;
+        if (onEnd) onEnd();
       }, 8000);
 
       utterance.onstart = () => {
@@ -255,17 +259,20 @@ export class VoiceAgent {
         this.isSpeaking = false;
         if (this._speakingWatchdog) clearTimeout(this._speakingWatchdog);
         window.__activeSpeechUtterance = null;
+        if (onEnd) onEnd();
       };
       utterance.onerror = () => {
         this.isSpeaking = false;
         if (this._speakingWatchdog) clearTimeout(this._speakingWatchdog);
         window.__activeSpeechUtterance = null;
+        if (onEnd) onEnd();
       };
 
       this.speechSynthesis.speak(utterance);
     } catch (err) {
       console.warn('Speech synthesis error:', err);
       this.isSpeaking = false;
+      if (onEnd) onEnd();
     }
   }
 

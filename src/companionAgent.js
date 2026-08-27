@@ -76,27 +76,12 @@ export class VisualCompanionAgent {
 
     if (!this.voiceAgent) return;
 
-    // Speak using speech synthesis
-    this.voiceAgent.speak(text);
-
-    // Watch for when speech ends to automatically re-engage the microphone
-    const checkSpeechEnd = setInterval(() => {
-      if (!this.isActive) {
-        clearInterval(checkSpeechEnd);
-        return;
+    // Speak using speech synthesis, automatically engaging listening turn upon completion
+    this.voiceAgent.speak(text, () => {
+      if (this.isActive) {
+        this.promptForNextTurn();
       }
-
-      const isSpeaking =
-        (window.speechSynthesis && window.speechSynthesis.speaking) ||
-        (this.voiceAgent && this.voiceAgent.isSpeaking);
-
-      if (!isSpeaking) {
-        clearInterval(checkSpeechEnd);
-        if (this.isActive) {
-          this.promptForNextTurn();
-        }
-      }
-    }, 250);
+    });
   }
 
   /**

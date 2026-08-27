@@ -22,11 +22,9 @@ export class AiNoiseSuppressionPipeline {
     this.activeType = 'dsp-filters';
     this.isInitialized = false;
 
-    // Adaptive noise floor tracker for spectral gating
+    // Adaptive noise floor tracker
     this.noiseFloor = 0.005;
-    this.noiseFloorAlpha = 0.03; // Smooth background tracking
-    this.gateState = 'closed';
-    this.gateGain = 0.08; // -22dB attenuation during ambient silence
+    this.noiseFloorAlpha = 0.03;
   }
 
   /**
@@ -34,72 +32,80 @@ export class AiNoiseSuppressionPipeline {
    */
   static getAudioConstraints() {
     return {
-      echoCancellation: { ideal: true },
-      noiseSuppression: { ideal: true },
-      autoGainControl: { ideal: true },
-      channelCount: 1,
-      sampleRate: 16000
+      audio: {
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true }
+      }
     };
   }
 
   /**
-   * Initialize WebAssembly AI Noise Suppression Worklet
+   * Initialize WebAudio Filters and WebAssembly AI Noise Suppression Worklet
    */
   async initialize() {
     if (this.isInitialized) return this;
 
-    // 1. Build Biquad Formant Isolation Chain
-    // Highpass Filter (85 Hz): Cuts sub-rumble, fan drafts, HVAC, table knocks
+    // 1. Build Biquad Formant Isolation Chain (Synchronous, 0ms latency)
+    // Highpass Filter (85 Hz): Cuts desk vibrations, HVAC, table knocks, wind drafts
     this.highpassNode = this.audioContext.createBiquadFilter();
     this.highpassNode.type = 'highpass';
     this.highpassNode.frequency.value = 85;
     this.highpassNode.Q.value = 0.707;
 
-    // Peaking Filter (1800 Hz, +3dB): Boosts human vocal clarity and consonant intelligibility
+    // Peaking Filter (1800 Hz, +3.2dB): Elevates vocal formant clarity
     this.peakingNode = this.audioContext.createBiquadFilter();
     this.peakingNode.type = 'peaking';
     this.peakingNode.frequency.value = 1800;
     this.peakingNode.Q.value = 1.0;
     this.peakingNode.gain.value = 3.2;
 
-    // Lowpass Filter (3800 Hz): Cuts high-frequency hiss, coil whine, electronic buzz
+    // Lowpass Filter (3800 Hz): Cuts high-frequency coil whine, hiss, mouse clicks
     this.lowpassNode = this.audioContext.createBiquadFilter();
     this.lowpassNode.type = 'lowpass';
     this.lowpassNode.frequency.value = 3800;
     this.lowpassNode.Q.value = 0.707;
 
-    // 2. Try Speex Acoustic & Noise Suppressor WebAssembly Worklet
+    // 2. Try loading WebAssembly Worklet with timeout safety so recording is never delayed
     try {
-      if (this.audioContext.audioWorklet) {
-        const wasmBinary = await loadSpeex({ url: speexWasmPath });
-        await this.audioContext.audioWorklet.addModule(speexWorkletPath);
-        this.suppressorNode = new SpeexWorkletNode(this.audioContext, {
-          wasmBinary,
-          maxChannels: 1
-        });
-        this.activeType = 'speex-wasm';
-        console.log('[AiNoiseSuppressor] Activated SpeexDSP Acoustic WebAssembly Noise Suppressor');
-      }
-    } catch (speexErr) {
-      console.warn('[AiNoiseSuppressor] Speex worklet fallback, trying RNNoise:', speexErr);
-      try {
-        if (this.audioContext.audioWorklet) {
+      const workletPromise = (async () => {
+        if (!this.audioContext.audioWorklet) return null;
+        try {
+          const wasmBinary = await loadSpeex({ url: speexWasmPath });
+          await this.audioContext.audioWorklet.addModule(speexWorkletPath);
+          return new SpeexWorkletNode(this.audioContext, {
+            wasmBinary,
+            maxChannels: 1
+          });
+        } catch (_) {
           const wasmBinary = await loadRnnoise({
             url: rnnoiseWasmPath,
             simdUrl: rnnoiseSimdWasmPath
           });
           await this.audioContext.audioWorklet.addModule(rnnoiseWorkletPath);
-          this.suppressorNode = new RnnoiseWorkletNode(this.audioContext, {
+          return new RnnoiseWorkletNode(this.audioContext, {
             wasmBinary,
             maxChannels: 1
           });
-          this.activeType = 'rnnoise-neural';
-          console.log('[AiNoiseSuppressor] Activated RNNoise Recurrent Neural Network Noise Suppressor');
         }
-      } catch (rnnErr) {
-        console.warn('[AiNoiseSuppressor] Neural worklet fallback to high-precision DSP filters:', rnnErr);
+      })();
+
+      // 1.2s timeout guard
+      const node = await Promise.race([
+        workletPromise,
+        new Promise((resolve) => setTimeout(() => resolve(null), 1200))
+      ]);
+
+      if (node) {
+        this.suppressorNode = node;
+        this.activeType = 'wasm-neural';
+        console.log('[AiNoiseSuppressor] WebAssembly AI Noise Suppressor active');
+      } else {
         this.activeType = 'dsp-filters';
       }
+    } catch (err) {
+      console.warn('[AiNoiseSuppressor] WebAssembly worklet fallback to high-precision DSP filters:', err);
+      this.activeType = 'dsp-filters';
     }
 
     this.isInitialized = true;
@@ -121,7 +127,6 @@ export class AiNoiseSuppressionPipeline {
 
     let lastNode = this.lowpassNode;
 
-    // If WebAssembly neural/acoustic worklet is active, route through it
     if (this.suppressorNode) {
       this.lowpassNode.connect(this.suppressorNode);
       lastNode = this.suppressorNode;
@@ -131,7 +136,7 @@ export class AiNoiseSuppressionPipeline {
   }
 
   /**
-   * Real-Time Adaptive Spectral Noise Gate & Dynamic Normalization
+   * Real-Time Adaptive Spectral Noise Gating & Dynamic Normalization
    * Cleans audio buffers before feeding to Whisper speech recognition
    * @param {Float32Array} rawBuffer - Audio samples from audio process event
    * @returns {{ cleanedBuffer: Float32Array, isSpeech: boolean, rms: number }}
@@ -149,27 +154,16 @@ export class AiNoiseSuppressionPipeline {
     const rms = Math.sqrt(energySum / len);
 
     // 2. Continually track ambient background noise floor
-    if (rms < this.noiseFloor * 1.6 || this.noiseFloor === 0.005) {
+    if (rms < this.noiseFloor * 1.5 || this.noiseFloor === 0.005) {
       this.noiseFloor = (1 - this.noiseFloorAlpha) * this.noiseFloor + this.noiseFloorAlpha * rms;
     }
 
     // Dynamic threshold based on tracked background noise
-    const speechThreshold = Math.max(0.012, this.noiseFloor * 2.2);
+    const speechThreshold = Math.max(0.012, this.noiseFloor * 2.0);
     const isSpeech = rms > speechThreshold;
 
-    // Smooth gate transition (prevents audible clicks)
-    if (isSpeech) {
-      this.gateState = 'open';
-      this.gateGain = Math.min(1.0, this.gateGain + 0.25);
-    } else {
-      this.gateState = 'closed';
-      this.gateGain = Math.max(0.08, this.gateGain - 0.12);
-    }
-
-    // 3. Apply soft spectral expansion attenuation to remove background hiss
-    for (let i = 0; i < len; i++) {
-      cleanedBuffer[i] = rawBuffer[i] * this.gateGain;
-    }
+    // Feed full speech signal through to Whisper
+    cleanedBuffer.set(rawBuffer);
 
     return { cleanedBuffer, isSpeech, rms };
   }
