@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="Real-time AI camera feed object detection identifying living and non-living objects with voice commands powered by Google Gemini Vision." />
+    <meta name="theme-color" content="#070a12" />
+    <title>AgentX Vision — Live Camera Object Detection & Voice Assistant</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div class="cyber-grid-bg"></div>
+
+    <div class="app-container">
+      <!-- Top HUD Header -->
+      <header class="hud-header" id="hudHeader">
+        <div class="brand-section">
+          <div class="logo-badge" id="appLogoBadge" title="AgentX AR Vision">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12h20M12 2v20M5 5l14 14M5 19L19 5"></path>
+              <circle cx="12" cy="12" r="8"></circle>
+            </svg>
+          </div>
+          <div class="app-title-group">
+            <h1>AgentX Vision <span class="version-pill">AI 3.6 FLASH</span></h1>
+          </div>
+        </div>
+
+        <!-- Telemetry Status Pills -->
+        <div class="telemetry-group">
+          <div class="telemetry-pill" id="liveTelemetryPill" title="Live Camera Feed Status">
+            <div class="live-dot" id="liveStatusDot"></div>
+            <span id="liveStatusText">LIVE FEED</span>
+          </div>
+
+          <div class="telemetry-pill" id="latencyTelemetryPill" title="Detection Processing Latency">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span id="latencyValue">-- ms</span>
+          </div>
+
+          <div class="telemetry-pill" id="detectionCountPill" title="Active Detected Objects">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            </svg>
+            <span id="totalDetectedCount">0 Objects</span>
+          </div>
+        </div>
+
+        <!-- Header Actions -->
+        <div class="hud-actions">
+          <button class="icon-btn" id="toggleDrawerBtn" title="Toggle Object Inventory & Telemetry">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <button class="icon-btn" id="openSettingsBtn" title="Settings & API Configuration">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Camera Viewport Area -->
+      <main class="viewport-wrapper" id="viewportWrapper">
+        <!-- Live Video Element -->
+        <video id="cameraFeed" autoplay playsinline muted></video>
+
+        <!-- High-DPI AR HUD Bounding Box Overlay Canvas -->
+        <canvas id="hudCanvas"></canvas>
+
+        <!-- Camera Status Badge -->
+        <div class="camera-status-badge" id="cameraStatusBadge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <span id="cameraStatusLabel">REAR CAMERA // 1280x720</span>
+        </div>
+
+        <!-- Voice Interaction Toast Banner -->
+        <div class="voice-banner hidden" id="voiceBanner">
+          <div class="voice-icon-pulse" id="voiceIconPulse">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </div>
+          <div class="voice-banner-content">
+            <div class="voice-command-text" id="voiceCommandText">Listening for command...</div>
+            <div class="voice-response-text" id="voiceResponseText">Say: "Where is the bottle?" or "Identify the plant"</div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Floating Action Dock -->
+      <nav class="floating-dock" id="floatingDock" aria-label="Camera and Detection Controls">
+        <!-- Switch Camera Button -->
+        <button class="icon-btn" id="switchCamBtn" title="Switch Camera (Front/Rear)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 2.21 0.895 4.21 2.343 5.657L4 18h6v-6l-2.343 2.343A5.96 5.96 0 0 1 6 10c0-3.314 2.686-6 6-6s6 2.686 6 6c0 1.657-.672 3.157-1.757 4.243l1.414 1.414A7.96 7.96 0 0 0 20 10z"></path>
+          </svg>
+        </button>
+
+        <!-- Main Voice Mic Trigger -->
+        <button class="mic-action-btn" id="micBtn" title="Voice Command: Push to Talk or Ask to Identify Object">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="23"></line>
+            <line x1="8" y1="23" x2="16" y2="23"></line>
+          </svg>
+        </button>
+
+        <!-- Scan Now Trigger Button -->
+        <button class="scan-btn" id="scanBtn" title="Analyze Current Camera Frame">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+            <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+            <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+            <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          <span id="scanBtnLabel">SCAN NOW</span>
+        </button>
+
+        <!-- Auto-Scan Toggle Switch -->
+        <button class="icon-btn active" id="autoScanToggleBtn" title="Toggle Auto-Scan Continuous Detection">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+        </button>
+
+        <div class="dock-divider"></div>
+
+        <!-- Filter Chips -->
+        <div class="filter-group" id="filterGroup">
+          <button class="filter-chip active" data-filter="all" id="filterAll">ALL</button>
+          <button class="filter-chip living" data-filter="living" id="filterLiving">
+            <span style="color:#10b981;">●</span> LIVING
+          </button>
+          <button class="filter-chip non-living" data-filter="non_living" id="filterNonLiving">
+            <span style="color:#00f0ff;">●</span> NON-LIVING
+          </button>
+        </div>
+      </nav>
+
+      <!-- Collapsible Inventory Drawer -->
+      <aside class="inventory-drawer" id="inventoryDrawer" aria-label="Detected Objects Inventory">
+        <div class="drawer-header">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+            Scene Telemetry
+          </h2>
+          <button class="icon-btn" id="closeDrawerBtn" title="Close Drawer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Counts Grid -->
+        <div class="stats-grid">
+          <div class="stat-box" id="statBoxTotal">
+            <div class="stat-val" id="statTotalVal">0</div>
+            <div class="stat-lbl">Total</div>
+          </div>
+          <div class="stat-box living" id="statBoxLiving">
+            <div class="stat-val" id="statLivingVal">0</div>
+            <div class="stat-lbl">Living</div>
+          </div>
+          <div class="stat-box non-living" id="statBoxNonLiving">
+            <div class="stat-val" id="statNonLivingVal">0</div>
+            <div class="stat-lbl">Non-Living</div>
+          </div>
+        </div>
+
+        <!-- Scrollable Objects List -->
+        <div class="objects-scroll-area" id="objectsListContainer">
+          <div class="empty-objects-msg" id="emptyObjectsMsg">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M16 16s-1.5-2-4-2-4 2-4 2"></path>
+              <line x1="9" y1="9" x2="9.01" y2="9"></line>
+              <line x1="15" y1="9" x2="15.01" y2="9"></line>
+            </svg>
+            <p>No objects detected yet.<br />Click <strong>SCAN NOW</strong> or enable Auto-Scan.</p>
+          </div>
+        </div>
+
+        <!-- Voice Quick Assist Help -->
+        <div class="drawer-help-section">
+          <div class="help-title">Try Voice Commands</div>
+          <div class="help-pills">
+            <button class="voice-sample-chip" data-cmd="Where is the bottle?">"Where is the bottle?"</button>
+            <button class="voice-sample-chip" data-cmd="Find the person">"Find the person"</button>
+            <button class="voice-sample-chip" data-cmd="Identify the plant">"Identify the plant"</button>
+            <button class="voice-sample-chip" data-cmd="What is in front of me?">"What's in front of me?"</button>
+            <button class="voice-sample-chip" data-cmd="Scan now">"Scan now"</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Settings & Configuration Modal -->
+      <div class="modal-backdrop hidden" id="settingsModal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>Vision & Voice Configuration</h3>
+            <button class="icon-btn" id="closeSettingsBtn" title="Close Settings">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="apiKeyInput">Gemini API Key</label>
+              <input type="password" class="form-input" id="apiKeyInput" placeholder="Enter Gemini API key" />
+              <small style="color: var(--text-muted); font-size: 0.75rem;">Pre-loaded with your validated Gemini API key.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="modelSelect">Multimodal AI Model</label>
+              <select class="select-input" id="modelSelect">
+                <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (Recommended - Ultra Fast Vision)</option>
+                <option value="gemini-3.7-flash">Gemini 3.7 Flash (High Reasoning Vision)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="scanIntervalRange">Auto-Scan Interval: <span id="intervalDisplay" style="color: var(--neon-cyan);">3.0s</span></label>
+              <input type="range" id="scanIntervalRange" min="2" max="10" step="0.5" value="3" style="width: 100%; accent-color: var(--neon-cyan);" />
+            </div>
+
+            <div class="toggle-row">
+              <div>
+                <div style="font-weight: 600; font-size: 0.9rem;">Voice Audio Response (TTS)</div>
+                <div style="color: var(--text-muted); font-size: 0.75rem;">Speak object identification aloud</div>
+              </div>
+              <input type="checkbox" id="ttsCheckbox" checked style="width: 20px; height: 20px; accent-color: var(--neon-emerald);" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn" id="cancelSettingsBtn">Cancel</button>
+            <button class="primary-btn" id="saveSettingsBtn">Save Settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Application Script Entrypoint -->
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
