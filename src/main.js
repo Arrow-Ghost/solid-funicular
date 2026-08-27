@@ -1,11 +1,12 @@
 /**
  * main.js - AgentX Vision Core Orchestrator
- * Integrates Camera feed, Gemini Vision multimodal detection,
- * Voice agent commands & TTS, AR HUD rendering, and UI controls.
+ * Integrates Camera feed, In-Browser YOLO Real-Time Detection (30 FPS),
+ * Gemini Multimodal Cloud Vision, Voice Agent & TTS, AR HUD, and UI controls.
  */
 
 import { CameraManager } from './camera.js';
 import { GeminiVisionClient } from './geminiVision.js';
+import { YoloVisionDetector } from './yoloVision.js';
 import { VoiceAgent } from './voiceAgent.js';
 import { HudRenderer } from './hudRenderer.js';
 
@@ -18,6 +19,9 @@ const latencyValueEl = document.getElementById('latencyValue');
 const totalDetectedCountEl = document.getElementById('totalDetectedCount');
 const cameraStatusBadge = document.getElementById('cameraStatusBadge');
 const cameraStatusLabel = document.getElementById('cameraStatusLabel');
+const engineToggleBtn = document.getElementById('engineToggleBtn');
+const engineIcon = document.getElementById('engineIcon');
+const engineLabel = document.getElementById('engineLabel');
 
 // Voice Banner Elements
 const voiceBanner = document.getElementById('voiceBanner');
@@ -49,6 +53,7 @@ const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const settingsModal = document.getElementById('settingsModal');
+const engineSelect = document.getElementById('engineSelect');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const modelSelect = document.getElementById('modelSelect');
 const scanIntervalRange = document.getElementById('scanIntervalRange');
@@ -57,17 +62,25 @@ const ttsCheckbox = document.getElementById('ttsCheckbox');
 
 // Application State
 const state = {
-  autoScan: false, // Default to on-demand to preserve API quota
-  autoScanInterval: 4000, // 4 seconds
+  engine: localStorage.getItem('vision_engine') || 'yolo', // 'yolo' (default 30 FPS) or 'gemini'
+  isYoloRunning: false,
+  autoScan: false, // For Gemini periodic scan
+  autoScanInterval: 4000,
   autoScanTimer: null,
   isScanning: false,
   activeFilter: 'all',
   lastScanTime: 0,
-  detectedObjects: []
+  detectedObjects: [],
+  lastInventoryUpdate: 0
 };
 
 // Initialize Subsystems
+const yoloDetector = new YoloVisionDetector({
+  onStatusChange: handleYoloStatusChange
+});
+
 const geminiClient = new GeminiVisionClient();
+
 const cameraManager = new CameraManager(videoEl, {
   facingMode: 'environment',
   onStatusChange: handleCameraStatusChange
@@ -84,9 +97,115 @@ const hudRenderer = new HudRenderer(canvasEl, videoEl, {
 });
 
 // Setup Settings Initial Values
+if (engineSelect) engineSelect.value = state.engine;
 apiKeyInput.value = geminiClient.getApiKey();
 modelSelect.value = geminiClient.getModel();
 ttsCheckbox.checked = voiceAgent.ttsEnabled;
+
+updateEngineBadgeUI();
+
+/**
+ * Update Engine Badge UI (Header Pill)
+ */
+function updateEngineBadgeUI() {
+  if (!engineIcon || !engineLabel) return;
+  if (state.engine === 'yolo') {
+    engineIcon.textContent = '⚡';
+    engineLabel.textContent = yoloDetector.isLoaded ? 'YOLO (30 FPS)' : 'YOLO (LOADING...)';
+    engineToggleBtn.style.borderColor = 'var(--neon-cyan)';
+    engineToggleBtn.style.color = 'var(--neon-cyan)';
+    engineToggleBtn.style.background = 'rgba(0, 240, 255, 0.12)';
+  } else {
+    engineIcon.textContent = '🧠';
+    engineLabel.textContent = 'GEMINI FLASH';
+    engineToggleBtn.style.borderColor = 'var(--neon-amber)';
+    engineToggleBtn.style.color = 'var(--neon-amber)';
+    engineToggleBtn.style.background = 'rgba(245, 158, 11, 0.12)';
+  }
+}
+
+/**
+ * Handle YOLO Status Changes
+ */
+function handleYoloStatusChange(status) {
+  if (status.status === 'loading') {
+    showVoiceBanner('YOLO Vision Engine', status.message, 2500);
+  } else if (status.status === 'ready') {
+    showVoiceBanner('YOLO Ready', 'Real-time 30 FPS detection active!', 3000);
+    updateEngineBadgeUI();
+  }
+}
+
+/**
+ * Set Engine Mode ('yolo' vs 'gemini')
+ */
+async function setEngineMode(newEngine) {
+  state.engine = newEngine;
+  localStorage.setItem('vision_engine', newEngine);
+  updateEngineBadgeUI();
+
+  if (newEngine === 'yolo') {
+    // Stop Gemini auto-scan
+    if (state.autoScanTimer) {
+      clearInterval(state.autoScanTimer);
+      state.autoScanTimer = null;
+    }
+    scanBtnLabel.textContent = 'QUICK SCAN';
+    showVoiceBanner('Engine Switched', 'Real-Time YOLO Active (30+ FPS On-Device)');
+    await startYoloLoop();
+  } else {
+    // Stop YOLO loop
+    state.isYoloRunning = false;
+    scanBtnLabel.textContent = 'SCAN NOW';
+    showVoiceBanner('Engine Switched', 'Gemini Multimodal Cloud Vision Active');
+    latencyValueEl.textContent = '-- ms';
+  }
+}
+
+/**
+ * Continuous Real-Time YOLO Detection Loop (30 FPS)
+ */
+async function startYoloLoop() {
+  if (state.engine !== 'yolo') return;
+
+  if (!yoloDetector.isLoaded && !yoloDetector.isLoading) {
+    await yoloDetector.loadModel();
+  }
+
+  state.isYoloRunning = true;
+
+  async function frameLoop() {
+    if (!state.isYoloRunning || state.engine !== 'yolo') return;
+
+    if (videoEl && videoEl.readyState >= 2 && !cameraManager.isPaused) {
+      try {
+        const result = await yoloDetector.detect(videoEl);
+        if (result && result.objects) {
+          state.detectedObjects = result.objects;
+          hudRenderer.setObjects(result.objects);
+
+          latencyValueEl.textContent = `${result.latencyMs} ms (YOLO)`;
+          totalDetectedCountEl.textContent = `${result.objects.length} Objects`;
+
+          // Throttle inventory list UI update to once every 1s
+          const now = performance.now();
+          if (now - state.lastInventoryUpdate > 1000) {
+            updateInventoryUI(result.objects);
+            state.lastInventoryUpdate = now;
+          }
+        }
+      } catch (err) {
+        console.warn('YOLO frame detection error:', err);
+      }
+    }
+
+    if (state.isYoloRunning && state.engine === 'yolo') {
+      requestAnimationFrame(frameLoop);
+    }
+  }
+
+  requestAnimationFrame(frameLoop);
+}
 
 /**
  * Handle Camera Status Changes
@@ -109,9 +228,9 @@ function handleCameraStatusChange(statusInfo) {
 }
 
 /**
- * Execute Scene Object Detection
+ * Execute Cloud Scene Object Detection (Gemini)
  */
-async function performScan() {
+async function performGeminiScan() {
   if (state.isScanning) return;
 
   const frameDataUrl = cameraManager.captureFrameBase64();
@@ -130,8 +249,7 @@ async function performScan() {
     state.detectedObjects = result.objects || [];
     hudRenderer.setObjects(state.detectedObjects);
 
-    // Update Telemetry
-    latencyValueEl.textContent = `${result.latencyMs} ms`;
+    latencyValueEl.textContent = `${result.latencyMs} ms (Gemini)`;
     totalDetectedCountEl.textContent = `${state.detectedObjects.length} Objects`;
 
     updateInventoryUI(state.detectedObjects);
@@ -146,11 +264,19 @@ async function performScan() {
     console.error('Scan detection error:', err);
     latencyValueEl.textContent = 'Quota / Error';
 
-    if (err.message && (err.message.includes('429') || err.message.includes('QuotaFailure') || err.message.includes('RESOURCE_EXHAUSTED'))) {
+    if (
+      err.message &&
+      (err.message.includes('429') || err.message.includes('QuotaFailure') || err.message.includes('RESOURCE_EXHAUSTED'))
+    ) {
       state.autoScan = false;
       autoScanToggleBtn.classList.remove('active');
       restartAutoScanTimer();
-      showVoiceBanner('Quota Limit Alert', 'Gemini free-tier quota reached for this model. Switch to Gemini 3.7 Flash in Settings or wait to retry.', 10000);
+      showVoiceBanner(
+        'Quota Limit Alert',
+        'Gemini free-tier quota reached. Switched back to YOLO 30 FPS mode.',
+        10000
+      );
+      setEngineMode('yolo');
     } else {
       showVoiceBanner('Detection Alert', err.message || 'Error communicating with Gemini');
     }
@@ -158,12 +284,26 @@ async function performScan() {
     state.isScanning = false;
     hudRenderer.setScanning(false);
     scanBtn.classList.remove('scanning');
-    scanBtnLabel.textContent = 'SCAN NOW';
+    scanBtnLabel.textContent = state.engine === 'yolo' ? 'QUICK SCAN' : 'SCAN NOW';
   }
 }
 
 /**
- * Start or Restart Auto-Scan loop
+ * General Scan Dispatcher
+ */
+async function performScan() {
+  if (state.engine === 'yolo') {
+    voiceAgent.playChime('radar_sweep');
+    updateInventoryUI(state.detectedObjects);
+    voiceAgent.playChime('detection_success');
+    showVoiceBanner('YOLO Scan', `${state.detectedObjects.length} objects currently tracked in real time.`);
+  } else {
+    await performGeminiScan();
+  }
+}
+
+/**
+ * Start or Restart Auto-Scan loop (Gemini Mode)
  */
 function restartAutoScanTimer() {
   if (state.autoScanTimer) {
@@ -171,10 +311,10 @@ function restartAutoScanTimer() {
     state.autoScanTimer = null;
   }
 
-  if (state.autoScan) {
+  if (state.engine === 'gemini' && state.autoScan) {
     state.autoScanTimer = setInterval(() => {
       if (!state.isScanning && !voiceAgent.isListening && !voiceAgent.isSpeaking) {
-        performScan();
+        performGeminiScan();
       }
     }, state.autoScanInterval);
   }
@@ -194,10 +334,14 @@ async function handleVoiceCommand(cmd) {
 
   if (cmd.type === 'DESCRIBE_SCENE') {
     showVoiceBanner(`Command: "${cmd.raw}"`, 'Analyzing entire view...');
-    const result = await performScan();
+    const result = await performGeminiScan();
     if (result && result.scene_summary) {
       showVoiceBanner(`Scene Overview`, result.scene_summary);
       voiceAgent.speak(result.scene_summary);
+    } else {
+      const summary = `I see ${state.detectedObjects.length} objects around you, including ${statLivingVal.textContent} living things and ${statNonLivingVal.textContent} non-living items.`;
+      showVoiceBanner('Scene Overview', summary);
+      voiceAgent.speak(summary);
     }
     return;
   }
@@ -222,8 +366,22 @@ async function handleVoiceCommand(cmd) {
 
   if (cmd.type === 'IDENTIFY_TARGET') {
     const targetQuery = cmd.target || cmd.raw;
-    showVoiceBanner(`Locating: "${targetQuery}"`, 'Analyzing visual field for target...');
+    showVoiceBanner(`Locating: "${targetQuery}"`, 'Searching visual field...');
 
+    // 1. Check in-memory YOLO detections (Instant 0ms response)
+    if (state.engine === 'yolo' && yoloDetector.isLoaded) {
+      const match = yoloDetector.findTarget(targetQuery, state.detectedObjects);
+      if (match && match.found) {
+        voiceAgent.playChime('target_locked');
+        hudRenderer.setTargetLock(match);
+        showVoiceBanner(`Found: ${match.name}`, match.spoken_response);
+        voiceAgent.speak(match.spoken_response);
+        highlightTargetInDrawer(match);
+        return;
+      }
+    }
+
+    // 2. If not found in YOLO or in Gemini mode, use Gemini Vision
     const frameDataUrl = cameraManager.captureFrameBase64();
     if (!frameDataUrl) {
       showVoiceBanner('Voice Search', 'Camera frame unavailable.');
@@ -240,8 +398,6 @@ async function handleVoiceCommand(cmd) {
         hudRenderer.setTargetLock(response);
         showVoiceBanner(`Found: ${response.name || targetQuery}`, response.spoken_response);
         voiceAgent.speak(response.spoken_response);
-
-        // Highlight or add to inventory list
         highlightTargetInDrawer(response);
       } else {
         const msg = response?.spoken_response || `I couldn't locate "${targetQuery}" in your current camera view.`;
@@ -250,8 +406,11 @@ async function handleVoiceCommand(cmd) {
       }
     } catch (err) {
       hudRenderer.setScanning(false);
-      console.error('Target identification failed:', err);
-      showVoiceBanner('Voice Identification Error', err.message);
+      console.warn('Gemini target fallback failed:', err.message);
+      // Fallback message
+      const msg = `I could not spot "${targetQuery}" in your camera feed.`;
+      showVoiceBanner('Target Search', msg);
+      voiceAgent.speak(msg);
     }
   }
 }
@@ -273,7 +432,7 @@ function handleVoiceTranscript({ interim, final }) {
 function handleVoiceStateChange({ isListening, error }) {
   if (isListening) {
     micBtn.classList.add('listening');
-    showVoiceBanner('Listening...', 'Speak an instruction or ask to locate an object');
+    showVoiceBanner('Listening...', 'Ask to locate any object (e.g. "Where is the bottle?")');
   } else {
     micBtn.classList.remove('listening');
     if (error && error !== 'no-speech') {
@@ -312,7 +471,6 @@ function handleObjectSelected(obj) {
   showVoiceBanner(obj.name, speechText);
   voiceAgent.speak(speechText);
 
-  // Scroll to and highlight card in inventory
   highlightTargetInDrawer(obj);
 }
 
@@ -333,14 +491,12 @@ function updateInventoryUI(objects) {
   }
   emptyObjectsMsg.style.display = 'none';
 
-  // Filter objects based on active filter
   const visible = objects.filter((obj) => {
     if (state.activeFilter === 'living') return obj.category === 'living';
     if (state.activeFilter === 'non_living') return obj.category === 'non_living';
     return true;
   });
 
-  // Rebuild object cards
   const existingCards = objectsListContainer.querySelectorAll('.object-card');
   existingCards.forEach((c) => c.remove());
 
@@ -413,6 +569,15 @@ function escapeHtml(str) {
  * Event Bindings
  */
 function initEventListeners() {
+  // Engine Switcher in Header
+  if (engineToggleBtn) {
+    engineToggleBtn.addEventListener('click', () => {
+      const next = state.engine === 'yolo' ? 'gemini' : 'yolo';
+      setEngineMode(next);
+      if (engineSelect) engineSelect.value = next;
+    });
+  }
+
   // Mic Trigger Button
   micBtn.addEventListener('click', () => {
     voiceAgent.toggleListening();
@@ -481,6 +646,9 @@ function initEventListeners() {
 
   // Save Settings
   saveSettingsBtn.addEventListener('click', () => {
+    if (engineSelect) {
+      setEngineMode(engineSelect.value);
+    }
     const key = apiKeyInput.value.trim();
     if (key) {
       geminiClient.setApiKey(key);
@@ -491,7 +659,7 @@ function initEventListeners() {
     voiceAgent.ttsEnabled = ttsCheckbox.checked;
 
     settingsModal.classList.add('hidden');
-    showVoiceBanner('Settings Saved', `Model set to ${model}. TTS is ${voiceAgent.ttsEnabled ? 'enabled' : 'disabled'}.`);
+    showVoiceBanner('Settings Saved', `Engine: ${state.engine.toUpperCase()}. TTS: ${voiceAgent.ttsEnabled ? 'On' : 'Off'}.`);
   });
 
   // Spacebar hotkey to toggle voice listening
@@ -509,14 +677,19 @@ function initEventListeners() {
 async function init() {
   initEventListeners();
 
-  // Start Camera
+  // 1. Start Camera Feed
   await cameraManager.start();
 
-  // Initial Scan after camera settles
-  setTimeout(() => {
-    performScan();
-    restartAutoScanTimer();
-  }, 1000);
+  // 2. Initialize Real-Time YOLO Detector
+  if (state.engine === 'yolo') {
+    try {
+      await yoloDetector.loadModel();
+      startYoloLoop();
+    } catch (err) {
+      console.warn('Initial YOLO setup error, falling back to Gemini:', err);
+      setEngineMode('gemini');
+    }
+  }
 }
 
 // Start when DOM is ready
