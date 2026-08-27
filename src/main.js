@@ -592,13 +592,37 @@ function initEventListeners() {
     });
   }
 
-  // Main Mic Trigger -> Talk to Visual Companion!
+  // Speech / Mic Button: Toggle Microphone ON and OFF
   micBtn.addEventListener('click', () => {
-    if (!companionAgent.isActive) {
-      companionAgent.toggle(state.detectedObjects);
-      updateCompanionUI(true, 'speaking');
+    // If companion is speaking, cancel immediately so user can talk
+    if (voiceAgent && voiceAgent.isSpeaking) {
+      voiceAgent.stopSpeaking();
+    }
+
+    // Toggle on-device microphone
+    const isNowListening = localWhisper.toggle();
+    if (isNowListening) {
+      micBtn.classList.add('listening');
+      micBtn.setAttribute('aria-pressed', 'true');
+      voiceAgent.playChime('listen_start');
+      if (companionAgent) {
+        updateCompanionUI(companionAgent.isActive, 'listening');
+      }
     } else {
-      localWhisper.toggle();
+      micBtn.classList.remove('listening');
+      micBtn.setAttribute('aria-pressed', 'false');
+      voiceAgent.playChime('command_received');
+      if (companionAgent) {
+        updateCompanionUI(companionAgent.isActive, 'thinking');
+      }
+    }
+  });
+
+  // Spacebar Hotkey: Toggle Microphone ON and OFF
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+      micBtn.click();
     }
   });
 

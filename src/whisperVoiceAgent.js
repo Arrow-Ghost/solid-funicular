@@ -69,6 +69,20 @@ export class LocalWhisperAgent {
   }
 
   /**
+   * Toggle recording state on or off
+   * @returns {boolean} Whether recording is now active
+   */
+  toggle() {
+    if (this.isRecording) {
+      this.stopRecordingAndTranscribe();
+      return false;
+    } else {
+      this.startRecording();
+      return true;
+    }
+  }
+
+  /**
    * Start recording user voice from microphone at 16kHz
    */
   async startRecording() {
