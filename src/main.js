@@ -10,6 +10,7 @@ import { YoloVisionDetector } from './yoloVision.js';
 import { VoiceAgent } from './voiceAgent.js';
 import { LocalWhisperAgent } from './whisperVoiceAgent.js';
 import { SceneNarrator } from './sceneNarrator.js';
+import { VisualCompanionAgent } from './companionAgent.js';
 import { HudRenderer } from './hudRenderer.js';
 
 // DOM Elements
@@ -37,6 +38,17 @@ const narratorLabel = document.getElementById('narratorLabel');
 const narrationBanner = document.getElementById('narrationBanner');
 const narrationText = document.getElementById('narrationText');
 let narrationBannerTimeout = null;
+
+// Companion Elements (For Blind & Low-Vision Users)
+const companionToggleBtn = document.getElementById('companionToggleBtn');
+const companionIcon = document.getElementById('companionIcon');
+const companionLabel = document.getElementById('companionLabel');
+const companionHud = document.getElementById('companionHud');
+const companionStateBadge = document.getElementById('companionStateBadge');
+const companionUserBubble = document.getElementById('companionUserBubble');
+const companionUserText = document.getElementById('companionUserText');
+const companionAiBubble = document.getElementById('companionAiBubble');
+const companionAiText = document.getElementById('companionAiText');
 
 // Floating Dock Controls
 const micBtn = document.getElementById('micBtn');
@@ -105,6 +117,10 @@ const voiceAgent = new VoiceAgent({
 // 100% On-Device Whisper Voice Agent (Runs in WebAssembly / WebGPU - Zero Cloud Speech Servers)
 const localWhisper = new LocalWhisperAgent({
   onCommand: (cmdText) => {
+    if (companionAgent && companionAgent.isActive) {
+      companionAgent.handleUserUtterance(cmdText, state.detectedObjects);
+      return;
+    }
     voiceAgent.processSpokenCommand(cmdText);
   },
   onStatus: (status) => {
@@ -161,6 +177,53 @@ function updateNarratorUI() {
     narratorLabel.textContent = 'NARRATE: OFF';
     narratorIcon.textContent = '🗣️';
     if (narrationBanner) narrationBanner.classList.add('hidden');
+  }
+}
+
+// Visual Companion Agent (Conversational Assistant for Blind & Low-Vision)
+const companionAgent = new VisualCompanionAgent({
+  voiceAgent,
+  whisperAgent: localWhisper,
+  cameraManager,
+  geminiClient,
+  onStateChange: ({ active, state }) => {
+    updateCompanionUI(active, state);
+  },
+  onDialogue: ({ role, text }) => {
+    if (role === 'user') {
+      if (companionUserBubble) {
+        companionUserBubble.style.display = 'flex';
+        companionUserText.textContent = text;
+      }
+    } else {
+      if (companionAiBubble) {
+        companionAiText.textContent = text;
+      }
+    }
+  },
+  onTargetFound: (match) => {
+    hudRenderer.setTargetLock(match);
+    highlightTargetInDrawer(match);
+  }
+});
+
+function updateCompanionUI(active, state) {
+  if (!companionToggleBtn || !companionLabel || !companionIcon) return;
+  if (active) {
+    companionToggleBtn.classList.add('active');
+    companionLabel.textContent = 'COMPANION: LIVE';
+    companionIcon.textContent = '🤝';
+    if (companionHud) companionHud.classList.remove('hidden');
+
+    if (companionStateBadge) {
+      companionStateBadge.className = 'companion-hud-state ' + (state || 'listening');
+      companionStateBadge.textContent = (state || 'listening').toUpperCase();
+    }
+  } else {
+    companionToggleBtn.classList.remove('active');
+    companionLabel.textContent = 'COMPANION: OFF';
+    companionIcon.textContent = '🤝';
+    if (companionHud) companionHud.classList.add('hidden');
   }
 }
 
@@ -417,6 +480,22 @@ async function handleVoiceCommand(cmd) {
     }
     updateNarratorUI();
     showVoiceBanner('Live Narrator', 'Live scene voice narration paused.');
+    return;
+  }
+
+  // Companion Mode toggle commands
+  if (rawLower.includes('companion') || rawLower.includes('assistant mode') || rawLower.includes('blind assistance')) {
+    if (rawLower.includes('stop') || rawLower.includes('off') || rawLower.includes('pause') || rawLower.includes('exit')) {
+      if (companionAgent.isActive) {
+        companionAgent.toggle();
+        updateCompanionUI(false, 'idle');
+      }
+    } else {
+      if (!companionAgent.isActive) {
+        companionAgent.toggle(state.detectedObjects);
+        updateCompanionUI(true, 'speaking');
+      }
+    }
     return;
   }
 
@@ -705,6 +784,25 @@ function initEventListeners() {
           startYoloLoop();
         } else if (state.engine === 'gemini') {
           performGeminiScan();
+        }
+      }
+    });
+  }
+
+  // Companion Mode Toggle Pill in Header
+  if (companionToggleBtn) {
+    companionToggleBtn.addEventListener('click', () => {
+      const active = companionAgent.toggle(state.detectedObjects);
+      updateCompanionUI(active, 'speaking');
+
+      if (active) {
+        // Pause narrator so they don't conflict
+        if (sceneNarrator.isEnabled) {
+          sceneNarrator.toggle();
+          updateNarratorUI();
+        }
+        if (state.engine === 'yolo') {
+          startYoloLoop();
         }
       }
     });

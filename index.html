@@ -64,6 +64,11 @@
             <span id="narratorIcon">🗣️</span>
             <span id="narratorLabel">NARRATE: OFF</span>
           </button>
+
+          <button class="telemetry-pill companion-pill" id="companionToggleBtn" title="Toggle AI Visual Companion Mode for Blind & Low-Vision Users" style="cursor: pointer;">
+            <span id="companionIcon">🤝</span>
+            <span id="companionLabel">COMPANION: OFF</span>
+          </button>
         </div>
 
         <!-- Header Actions -->
@@ -125,6 +130,30 @@
             <span class="narrator-badge">LIVE NARRATION</span>
           </div>
           <div class="narration-text" id="narrationText">Observing your environment...</div>
+        </div>
+
+        <!-- Accessible Visual Companion Dialogue Card -->
+        <div class="companion-hud hidden" id="companionHud" role="region" aria-live="polite" aria-label="Visual Companion Dialogue">
+          <div class="companion-hud-header">
+            <div class="companion-hud-title">
+              <span class="companion-hud-dot"></span>
+              <span>AI VISUAL COMPANION</span>
+            </div>
+            <span class="companion-hud-state" id="companionStateBadge">LISTENING</span>
+          </div>
+          <div class="companion-hud-body">
+            <div class="companion-bubble user" id="companionUserBubble" style="display: none;">
+              <span class="bubble-role">YOU</span>
+              <span class="bubble-text" id="companionUserText">...</span>
+            </div>
+            <div class="companion-bubble assistant" id="companionAiBubble">
+              <span class="bubble-role">COMPANION</span>
+              <span class="bubble-text" id="companionAiText">Hello! I am your visual companion. I can see your surroundings and guide you. What would you like to know?</span>
+            </div>
+          </div>
+          <div class="companion-hud-footer">
+            <span>🎙️ Hands-free conversation active. Speak naturally or tap pill to pause.</span>
+          </div>
         </div>
       </main>
 

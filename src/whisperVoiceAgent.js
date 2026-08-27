@@ -84,12 +84,31 @@ export class LocalWhisperAgent {
       this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
 
       this.audioChunks = [];
+      this.hasSpoken = false;
+      this.lastSpeechTime = Date.now();
       this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       this.processorNode.onaudioprocess = (e) => {
         if (!this.isRecording) return;
         const channelData = e.inputBuffer.getChannelData(0);
         this.audioChunks.push(new Float32Array(channelData));
+
+        // Voice Activity Detection (VAD): measure volume energy
+        let sum = 0;
+        for (let i = 0; i < channelData.length; i++) {
+          sum += channelData[i] * channelData[i];
+        }
+        const rms = Math.sqrt(sum / channelData.length);
+        const now = Date.now();
+
+        if (rms > 0.018) {
+          // User is actively speaking
+          this.hasSpoken = true;
+          this.lastSpeechTime = now;
+        } else if (this.hasSpoken && now - this.lastSpeechTime > 1350) {
+          // Natural pause/silence detected after speaking -> auto-stop and transcribe!
+          this.stopRecordingAndTranscribe();
+        }
       };
 
       this.sourceNode.connect(this.processorNode);
@@ -98,15 +117,15 @@ export class LocalWhisperAgent {
       this.isRecording = true;
       this.onStatus({
         status: 'recording',
-        message: 'Listening... (Speak now, tap mic to finish)'
+        message: 'Listening... (Speak naturally, auto-detects when you finish)'
       });
 
-      // Auto-stop after 4 seconds of speech
+      // Max safety timeout (e.g. 7.5 seconds)
       this.recordTimeout = setTimeout(() => {
         if (this.isRecording) {
           this.stopRecordingAndTranscribe();
         }
-      }, 4000);
+      }, 7500);
     } catch (err) {
       console.error('Microphone error:', err);
       this.onStatus({
