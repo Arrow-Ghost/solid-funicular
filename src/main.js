@@ -57,8 +57,8 @@ const ttsCheckbox = document.getElementById('ttsCheckbox');
 
 // Application State
 const state = {
-  autoScan: true,
-  autoScanInterval: 3000, // 3 seconds
+  autoScan: false, // Default to on-demand to preserve API quota
+  autoScanInterval: 4000, // 4 seconds
   autoScanTimer: null,
   isScanning: false,
   activeFilter: 'all',
@@ -144,8 +144,16 @@ async function performScan() {
     return result;
   } catch (err) {
     console.error('Scan detection error:', err);
-    latencyValueEl.textContent = 'API Error';
-    showVoiceBanner('Detection Alert', err.message || 'Error communicating with Gemini');
+    latencyValueEl.textContent = 'Quota / Error';
+
+    if (err.message && (err.message.includes('429') || err.message.includes('QuotaFailure') || err.message.includes('RESOURCE_EXHAUSTED'))) {
+      state.autoScan = false;
+      autoScanToggleBtn.classList.remove('active');
+      restartAutoScanTimer();
+      showVoiceBanner('Quota Limit Alert', 'Gemini free-tier quota reached for this model. Switch to Gemini 3.7 Flash in Settings or wait to retry.', 10000);
+    } else {
+      showVoiceBanner('Detection Alert', err.message || 'Error communicating with Gemini');
+    }
   } finally {
     state.isScanning = false;
     hudRenderer.setScanning(false);
