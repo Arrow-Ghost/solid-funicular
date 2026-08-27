@@ -436,7 +436,15 @@ function handleVoiceStateChange({ isListening, error }) {
   } else {
     micBtn.classList.remove('listening');
     if (error && error !== 'no-speech') {
-      showVoiceBanner('Microphone Notice', `Recognition status: ${error}`);
+      let friendlyMsg = `Speech status: ${error}`;
+      if (error === 'network') {
+        friendlyMsg = 'Browser could not reach speech recognition server. Check internet/VPN, or click prompt chips in Telemetry.';
+      } else if (error === 'not-allowed' || error === 'service-not-allowed') {
+        friendlyMsg = 'Microphone permission denied. Please allow microphone access in your browser address bar.';
+      } else if (error === 'audio-capture') {
+        friendlyMsg = 'No microphone detected or audio capture failed. Check your audio device.';
+      }
+      showVoiceBanner('Microphone Notice', friendlyMsg, 7000);
     }
   }
 }
