@@ -139,54 +139,44 @@ export class YoloVisionDetector {
    * Matches spoken queries (e.g. "Where is the bottle", "Find my phone", "Locate person")
    * against active real-time detections with 0ms latency.
    */
-  /**
-   * Fast In-Memory Voice Target Search.
-   * Matches spoken queries or candidate classes (e.g. ['bottle', 'cup'] or "Where is the bottle")
-   * against active real-time detections with 0ms latency.
-   */
-  findTarget(targetQueryOrClasses, activeObjects = []) {
+  findTarget(targetQuery, activeObjects = []) {
     if (!activeObjects || activeObjects.length === 0) {
-      const q = Array.isArray(targetQueryOrClasses) ? targetQueryOrClasses.join('/') : targetQueryOrClasses;
       return {
         found: false,
-        spoken_response: `No objects currently in view to match "${q}".`
+        spoken_response: `No objects currently in view to match "${targetQuery}".`
       };
     }
 
-    let searchTerms = [];
-    if (Array.isArray(targetQueryOrClasses)) {
-      searchTerms = targetQueryOrClasses.map((s) => s.toLowerCase());
-    } else {
-      const queryLower = String(targetQueryOrClasses).toLowerCase();
-      searchTerms.push(queryLower);
+    const queryLower = targetQuery.toLowerCase();
 
-      // Mapping synonyms / plurals
-      const targetMap = {
-        human: 'person',
-        man: 'person',
-        woman: 'person',
-        guy: 'person',
-        girl: 'person',
-        someone: 'person',
-        flower: 'potted plant',
-        plant: 'potted plant',
-        phone: 'cell phone',
-        mobile: 'cell phone',
-        smartphone: 'cell phone',
-        screen: 'tv',
-        monitor: 'tv',
-        pc: 'laptop',
-        computer: 'laptop',
-        mug: 'cup',
-        glass: 'wine glass',
-        backpack: 'backpack',
-        bag: 'backpack'
-      };
+    // Mapping synonyms / plurals
+    const targetMap = {
+      human: 'person',
+      man: 'person',
+      woman: 'person',
+      guy: 'person',
+      girl: 'person',
+      someone: 'person',
+      me: 'person',
+      flower: 'potted plant',
+      plant: 'potted plant',
+      phone: 'cell phone',
+      mobile: 'cell phone',
+      smartphone: 'cell phone',
+      screen: 'tv',
+      monitor: 'tv',
+      pc: 'laptop',
+      computer: 'laptop',
+      mug: 'cup',
+      glass: 'wine glass',
+      backpack: 'backpack',
+      bag: 'backpack'
+    };
 
-      for (const [synonym, standard] of Object.entries(targetMap)) {
-        if (queryLower.includes(synonym)) {
-          searchTerms.push(standard);
-        }
+    let searchTerms = [queryLower];
+    for (const [synonym, standard] of Object.entries(targetMap)) {
+      if (queryLower.includes(synonym)) {
+        searchTerms.push(standard);
       }
     }
 
@@ -218,11 +208,10 @@ export class YoloVisionDetector {
       };
     }
 
-    const label = Array.isArray(targetQueryOrClasses) ? targetQueryOrClasses[0] : targetQueryOrClasses;
     return {
       found: false,
-      name: label,
-      spoken_response: `I could not find a ${label} in your camera view.`
+      name: targetQuery,
+      spoken_response: `I could not find "${targetQuery}" in your live camera view.`
     };
   }
 }

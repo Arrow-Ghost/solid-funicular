@@ -393,25 +393,23 @@ async function handleVoiceCommand(cmd) {
   }
 
   if (cmd.type === 'IDENTIFY_TARGET') {
-    const targetQuery = cmd.targetName || cmd.target || cmd.raw;
-    const targetClasses = cmd.targetClasses && cmd.targetClasses.length > 0 ? cmd.targetClasses : [targetQuery];
+    const targetQuery = cmd.target || cmd.raw;
+    showVoiceBanner(`Locating: "${targetQuery}"`, 'Searching visual field...');
 
-    showVoiceBanner(`AI Prompt: "${cmd.raw}"`, cmd.spokenAck || `Locating "${targetQuery}"...`);
-
-    // 1. Check in-memory YOLO detections using multi-class candidate search (Instant 0ms response)
+    // 1. Check in-memory YOLO detections (Instant 0ms response)
     if (state.engine === 'yolo' && yoloDetector.isLoaded) {
-      const match = yoloDetector.findTarget(targetClasses, state.detectedObjects);
+      const match = yoloDetector.findTarget(targetQuery, state.detectedObjects);
       if (match && match.found) {
         voiceAgent.playChime('target_locked');
         hudRenderer.setTargetLock(match);
-        showVoiceBanner(`Target Locked: ${match.name}`, match.spoken_response);
+        showVoiceBanner(`Found: ${match.name}`, match.spoken_response);
         voiceAgent.speak(match.spoken_response);
         highlightTargetInDrawer(match);
         return;
       }
     }
 
-    // 2. If not found in YOLO or in Gemini mode, use Gemini Vision with the semantic AI prompt
+    // 2. If not found in YOLO or in Gemini mode, use Gemini Vision
     const frameDataUrl = cameraManager.captureFrameBase64();
     if (!frameDataUrl) {
       showVoiceBanner('Voice Search', 'Camera frame unavailable.');
@@ -420,8 +418,7 @@ async function handleVoiceCommand(cmd) {
 
     hudRenderer.setScanning(true);
     try {
-      const promptQuery = `User asked: "${cmd.raw}". Looking for object: ${targetClasses.join(' or ')}.`;
-      const response = await geminiClient.identifyTargetObject(frameDataUrl, promptQuery);
+      const response = await geminiClient.identifyTargetObject(frameDataUrl, cmd.raw);
       hudRenderer.setScanning(false);
 
       if (response && response.found) {
@@ -431,14 +428,15 @@ async function handleVoiceCommand(cmd) {
         voiceAgent.speak(response.spoken_response);
         highlightTargetInDrawer(response);
       } else {
-        const msg = response?.spoken_response || `I couldn't locate a ${targetQuery} in your current camera view.`;
+        const msg = response?.spoken_response || `I couldn't locate "${targetQuery}" in your current camera view.`;
         showVoiceBanner(`Target Not Found`, msg);
         voiceAgent.speak(msg);
       }
     } catch (err) {
       hudRenderer.setScanning(false);
       console.warn('Gemini target fallback failed:', err.message);
-      const msg = `I could not spot a ${targetQuery} in your camera feed.`;
+      // Fallback message
+      const msg = `I could not spot "${targetQuery}" in your camera feed.`;
       showVoiceBanner('Target Search', msg);
       voiceAgent.speak(msg);
     }

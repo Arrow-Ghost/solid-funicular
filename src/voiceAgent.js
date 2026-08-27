@@ -4,14 +4,11 @@
  * SpeechSynthesis for spoken responses, and Web Audio API for procedural sound effects.
  */
 
-import { AiPromptProcessor } from './aiPromptProcessor.js';
-
 export class VoiceAgent {
   constructor(options = {}) {
     this.onCommand = options.onCommand || (() => {});
     this.onTranscript = options.onTranscript || (() => {});
     this.onStateChange = options.onStateChange || (() => {});
-    this.promptProcessor = new AiPromptProcessor();
 
     this.recognition = null;
     this.isListening = false;
@@ -130,23 +127,87 @@ export class VoiceAgent {
   }
 
   /**
-   * Interpret and parse spoken command into intent action using Semantic AI Prompt Processing.
+   * Interpret and parse spoken command into intent action.
    */
-  async processSpokenCommand(transcript) {
+  processSpokenCommand(transcript) {
     this.playChime('command_received');
-    try {
-      const intent = await this.promptProcessor.process(transcript);
-      this.onCommand(intent);
-    } catch (err) {
-      console.warn('AI Prompt processing error:', err);
-      // Fallback
+    const lower = transcript.toLowerCase();
+
+    // 1. General Scene queries
+    if (
+      lower.includes('what do you see') ||
+      lower.includes('what is in front of me') ||
+      lower.includes("what's in front of me") ||
+      lower.includes('describe scene') ||
+      lower.includes('describe what you see') ||
+      lower.includes('scan the room')
+    ) {
       this.onCommand({
-        type: 'IDENTIFY_TARGET',
-        targetClasses: [transcript.trim().toLowerCase()],
-        targetName: transcript.trim(),
+        type: 'DESCRIBE_SCENE',
         raw: transcript
       });
+      return;
     }
+
+    // 2. Scan triggers
+    if (lower === 'scan' || lower === 'scan now' || lower === 'detect' || lower === 'detect objects') {
+      this.onCommand({
+        type: 'TRIGGER_SCAN',
+        raw: transcript
+      });
+      return;
+    }
+
+    // 3. Filter toggles
+    if (lower.includes('living only') || lower.includes('living things only') || lower.includes('show living')) {
+      this.onCommand({
+        type: 'FILTER_LIVING',
+        raw: transcript
+      });
+      return;
+    }
+    if (lower.includes('non living only') || lower.includes('inanimate') || lower.includes('show non living')) {
+      this.onCommand({
+        type: 'FILTER_NON_LIVING',
+        raw: transcript
+      });
+      return;
+    }
+    if (lower.includes('show all') || lower.includes('clear filter') || lower.includes('reset filter')) {
+      this.onCommand({
+        type: 'FILTER_ALL',
+        raw: transcript
+      });
+      return;
+    }
+
+    // 4. Targeted Object Search
+    // Patterns: "find the X", "where is my X", "identify the X", "locate X", "search for X"
+    let target = null;
+    const patterns = [
+      /(?:find|where is|where's|where are)\s+(?:the\s+|my\s+|a\s+|an\s+)?(.+)/i,
+      /(?:identify|locate|spot|detect)\s+(?:the\s+|my\s+|a\s+|an\s+)?(.+)/i,
+      /(?:what is|what's|is there a|do you see a)\s+(?:the\s+|my\s+|a\s+|an\s+)?(.+)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = lower.match(pattern);
+      if (match && match[1]) {
+        target = match[1].replace(/[?.!]+$/, '').trim();
+        break;
+      }
+    }
+
+    if (!target) {
+      // Fallback: entire transcript as target
+      target = transcript.replace(/[?.!]+$/, '').trim();
+    }
+
+    this.onCommand({
+      type: 'IDENTIFY_TARGET',
+      target: target,
+      raw: transcript
+    });
   }
 
   /**
