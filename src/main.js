@@ -9,7 +9,6 @@ import { GeminiVisionClient } from './geminiVision.js';
 import { YoloVisionDetector } from './yoloVision.js';
 import { VoiceAgent } from './voiceAgent.js';
 import { LocalWhisperAgent } from './whisperVoiceAgent.js';
-import { SceneNarrator } from './sceneNarrator.js';
 import { VisualCompanionAgent } from './companionAgent.js';
 import { HudRenderer } from './hudRenderer.js';
 
@@ -25,19 +24,6 @@ const cameraStatusLabel = document.getElementById('cameraStatusLabel');
 const engineToggleBtn = document.getElementById('engineToggleBtn');
 const engineIcon = document.getElementById('engineIcon');
 const engineLabel = document.getElementById('engineLabel');
-
-// Voice Banner Elements
-const voiceBanner = document.getElementById('voiceBanner');
-const voiceCommandText = document.getElementById('voiceCommandText');
-const voiceResponseText = document.getElementById('voiceResponseText');
-
-// Narrator Elements
-const narratorToggleBtn = document.getElementById('narratorToggleBtn');
-const narratorIcon = document.getElementById('narratorIcon');
-const narratorLabel = document.getElementById('narratorLabel');
-const narrationBanner = document.getElementById('narrationBanner');
-const narrationText = document.getElementById('narrationText');
-let narrationBannerTimeout = null;
 
 // Companion Elements (For Blind & Low-Vision Users)
 const companionToggleBtn = document.getElementById('companionToggleBtn');
@@ -117,68 +103,27 @@ const voiceAgent = new VoiceAgent({
 // 100% On-Device Whisper Voice Agent (Runs in WebAssembly / WebGPU - Zero Cloud Speech Servers)
 const localWhisper = new LocalWhisperAgent({
   onCommand: (cmdText) => {
-    if (companionAgent && companionAgent.isActive) {
-      companionAgent.handleUserUtterance(cmdText, state.detectedObjects);
-      return;
-    }
-    voiceAgent.processSpokenCommand(cmdText);
+    companionAgent.handleUserUtterance(cmdText, state.detectedObjects);
   },
   onStatus: (status) => {
     if (status.status === 'recording') {
       micBtn.classList.add('listening');
-      showVoiceBanner('Listening to Voice...', 'Speak your command now (tap mic to stop)', 0);
-      voiceAgent.playChime('listen_start');
+      updateCompanionUI(companionAgent.isActive, 'listening');
     } else if (status.status === 'transcribing') {
       micBtn.classList.remove('listening');
-      showVoiceBanner('Analyzing Audio...', 'Transcribing speech locally with on-device Whisper...', 0);
-    } else if (status.status === 'loading') {
-      showVoiceBanner('Voice Model', status.message, 3000);
-    } else if (status.status === 'error') {
-      micBtn.classList.remove('listening');
-      showVoiceBanner('Microphone Notice', status.message, 5000);
+      updateCompanionUI(companionAgent.isActive, 'thinking');
     } else {
       micBtn.classList.remove('listening');
     }
   },
   onTranscript: ({ final }) => {
-    showVoiceBanner('Heard Voice Command', `"${final}"`, 4000);
+    // Utterances routed to companionAgent
   }
 });
 
 const hudRenderer = new HudRenderer(canvasEl, videoEl, {
   onSelect: handleObjectSelected
 });
-
-// Automatic Live Scene Narrator
-const sceneNarrator = new SceneNarrator({
-  voiceAgent: voiceAgent,
-  minIntervalMs: 7000,
-  onNarration: ({ text, isStatus }) => {
-    if (narrationBanner && narrationText) {
-      narrationBanner.classList.remove('hidden');
-      narrationText.textContent = text;
-
-      if (narrationBannerTimeout) clearTimeout(narrationBannerTimeout);
-      narrationBannerTimeout = setTimeout(() => {
-        narrationBanner.classList.add('hidden');
-      }, 7500);
-    }
-  }
-});
-
-function updateNarratorUI() {
-  if (!narratorToggleBtn || !narratorLabel || !narratorIcon) return;
-  if (sceneNarrator.isEnabled) {
-    narratorToggleBtn.classList.add('active');
-    narratorLabel.textContent = 'NARRATING LIVE';
-    narratorIcon.textContent = '🔊';
-  } else {
-    narratorToggleBtn.classList.remove('active');
-    narratorLabel.textContent = 'NARRATE: OFF';
-    narratorIcon.textContent = '🗣️';
-    if (narrationBanner) narrationBanner.classList.add('hidden');
-  }
-}
 
 // Visual Companion Agent (Conversational Assistant for Blind & Low-Vision)
 const companionAgent = new VisualCompanionAgent({
@@ -318,9 +263,6 @@ async function startYoloLoop() {
           latencyValueEl.textContent = `${result.latencyMs} ms (YOLO)`;
           totalDetectedCountEl.textContent = `${result.objects.length} Objects`;
 
-          // Evaluate real-time scene narration
-          sceneNarrator.evaluateScene(result.objects);
-
           // Throttle inventory list UI update to once every 1s
           const now = performance.now();
           if (now - state.lastInventoryUpdate > 1000) {
@@ -387,9 +329,6 @@ async function performGeminiScan() {
     totalDetectedCountEl.textContent = `${state.detectedObjects.length} Objects`;
 
     updateInventoryUI(state.detectedObjects);
-
-    // Evaluate scene narration with Gemini summary
-    sceneNarrator.evaluateScene(state.detectedObjects, result.scene_summary);
 
     if (state.detectedObjects.length > 0) {
       voiceAgent.playChime('detection_success');
@@ -461,130 +400,9 @@ function restartAutoScanTimer() {
  * Handle Voice Agent Commands
  */
 async function handleVoiceCommand(cmd) {
-  console.log('Processed voice command:', cmd);
-
-  const rawLower = (cmd.raw || '').toLowerCase();
-
-  // Voice narration toggle commands
-  if (rawLower.includes('start narrat') || rawLower.includes('auto narrat') || rawLower.includes('turn on narrat') || rawLower.includes('enable narrat')) {
-    if (!sceneNarrator.isEnabled) {
-      sceneNarrator.toggle(state.detectedObjects);
-    }
-    updateNarratorUI();
-    showVoiceBanner('Live Narrator', 'Live scene voice narration enabled.');
-    return;
-  }
-  if (rawLower.includes('stop narrat') || rawLower.includes('pause narrat') || rawLower.includes('turn off narrat') || rawLower.includes('disable narrat')) {
-    if (sceneNarrator.isEnabled) {
-      sceneNarrator.toggle();
-    }
-    updateNarratorUI();
-    showVoiceBanner('Live Narrator', 'Live scene voice narration paused.');
-    return;
-  }
-
-  // Companion Mode toggle commands
-  if (rawLower.includes('companion') || rawLower.includes('assistant mode') || rawLower.includes('blind assistance')) {
-    if (rawLower.includes('stop') || rawLower.includes('off') || rawLower.includes('pause') || rawLower.includes('exit')) {
-      if (companionAgent.isActive) {
-        companionAgent.toggle();
-        updateCompanionUI(false, 'idle');
-      }
-    } else {
-      if (!companionAgent.isActive) {
-        companionAgent.toggle(state.detectedObjects);
-        updateCompanionUI(true, 'speaking');
-      }
-    }
-    return;
-  }
-
-  if (cmd.type === 'TRIGGER_SCAN') {
-    showVoiceBanner(`Command: "${cmd.raw}"`, 'Analyzing camera feed...');
-    await performScan();
-    return;
-  }
-
-  if (cmd.type === 'DESCRIBE_SCENE') {
-    showVoiceBanner(`Command: "${cmd.raw}"`, 'Analyzing entire view...');
-    const result = await performGeminiScan();
-    if (result && result.scene_summary) {
-      showVoiceBanner(`Scene Overview`, result.scene_summary);
-      voiceAgent.speak(result.scene_summary);
-    } else {
-      const summary = `I see ${state.detectedObjects.length} objects around you, including ${statLivingVal.textContent} living things and ${statNonLivingVal.textContent} non-living items.`;
-      showVoiceBanner('Scene Overview', summary);
-      voiceAgent.speak(summary);
-    }
-    return;
-  }
-
-  if (cmd.type === 'FILTER_LIVING') {
-    setFilterMode('living');
-    voiceAgent.speak('Displaying living things only.');
-    return;
-  }
-
-  if (cmd.type === 'FILTER_NON_LIVING') {
-    setFilterMode('non_living');
-    voiceAgent.speak('Displaying non-living things only.');
-    return;
-  }
-
-  if (cmd.type === 'FILTER_ALL') {
-    setFilterMode('all');
-    voiceAgent.speak('Displaying all detected objects.');
-    return;
-  }
-
-  if (cmd.type === 'IDENTIFY_TARGET') {
-    const targetQuery = cmd.target || cmd.raw;
-    showVoiceBanner(`Locating: "${targetQuery}"`, 'Searching visual field...');
-
-    // 1. Check in-memory YOLO detections (Instant 0ms response)
-    if (state.engine === 'yolo' && yoloDetector.isLoaded) {
-      const match = yoloDetector.findTarget(targetQuery, state.detectedObjects);
-      if (match && match.found) {
-        voiceAgent.playChime('target_locked');
-        hudRenderer.setTargetLock(match);
-        showVoiceBanner(`Found: ${match.name}`, match.spoken_response);
-        voiceAgent.speak(match.spoken_response);
-        highlightTargetInDrawer(match);
-        return;
-      }
-    }
-
-    // 2. If not found in YOLO or in Gemini mode, use Gemini Vision
-    const frameDataUrl = cameraManager.captureFrameBase64();
-    if (!frameDataUrl) {
-      showVoiceBanner('Voice Search', 'Camera frame unavailable.');
-      return;
-    }
-
-    hudRenderer.setScanning(true);
-    try {
-      const response = await geminiClient.identifyTargetObject(frameDataUrl, cmd.raw);
-      hudRenderer.setScanning(false);
-
-      if (response && response.found) {
-        voiceAgent.playChime('target_locked');
-        hudRenderer.setTargetLock(response);
-        showVoiceBanner(`Found: ${response.name || targetQuery}`, response.spoken_response);
-        voiceAgent.speak(response.spoken_response);
-        highlightTargetInDrawer(response);
-      } else {
-        const msg = response?.spoken_response || `I couldn't locate "${targetQuery}" in your current camera view.`;
-        showVoiceBanner(`Target Not Found`, msg);
-        voiceAgent.speak(msg);
-      }
-    } catch (err) {
-      hudRenderer.setScanning(false);
-      console.warn('Gemini target fallback failed:', err.message);
-      // Fallback message
-      const msg = `I could not spot "${targetQuery}" in your camera feed.`;
-      showVoiceBanner('Target Search', msg);
-      voiceAgent.speak(msg);
-    }
+  const query = cmd.raw || cmd.target || '';
+  if (companionAgent) {
+    await companionAgent.handleUserUtterance(query, state.detectedObjects);
   }
 }
 
@@ -639,18 +457,8 @@ function handleVoiceStateChange({ isListening, error }) {
 /**
  * Display Voice Toast Banner
  */
-let voiceBannerTimeout = null;
-function showVoiceBanner(title, message, autoHideMs = 6000) {
-  voiceBanner.classList.remove('hidden');
-  voiceCommandText.textContent = title;
-  voiceResponseText.textContent = message;
-
-  if (voiceBannerTimeout) clearTimeout(voiceBannerTimeout);
-  if (autoHideMs > 0) {
-    voiceBannerTimeout = setTimeout(() => {
-      voiceBanner.classList.add('hidden');
-    }, autoHideMs);
-  }
+function showVoiceBanner(title, message) {
+  console.log(`[Notification] ${title}: ${message}`);
 }
 
 /**
@@ -660,12 +468,11 @@ function handleObjectSelected(obj) {
   hudRenderer.setTargetLock(obj);
   voiceAgent.playChime('target_locked');
 
-  const catName = obj.category === 'living' ? 'living organism' : 'non-living object';
-  const speechText = `${obj.name}, a ${catName}. Located ${obj.location || 'in view'}.`;
+  const clock = companionAgent.getClockPosition(obj);
+  const prox = companionAgent.estimateProximity(obj);
+  const speechText = `I see a ${obj.name} ${clock}, ${prox.distanceStr}.`;
 
-  showVoiceBanner(obj.name, speechText);
-  voiceAgent.speak(speechText);
-
+  companionAgent.speakAndListen(speechText);
   highlightTargetInDrawer(obj);
 }
 
@@ -773,47 +580,29 @@ function initEventListeners() {
     });
   }
 
-  // Narrator Toggle Pill in Header
-  if (narratorToggleBtn) {
-    narratorToggleBtn.addEventListener('click', () => {
-      sceneNarrator.toggle(state.detectedObjects);
-      updateNarratorUI();
-
-      if (sceneNarrator.isEnabled) {
-        if (state.engine === 'yolo') {
-          startYoloLoop();
-        } else if (state.engine === 'gemini') {
-          performGeminiScan();
-        }
-      }
-    });
-  }
-
   // Companion Mode Toggle Pill in Header
   if (companionToggleBtn) {
     companionToggleBtn.addEventListener('click', () => {
       const active = companionAgent.toggle(state.detectedObjects);
       updateCompanionUI(active, 'speaking');
 
-      if (active) {
-        // Pause narrator so they don't conflict
-        if (sceneNarrator.isEnabled) {
-          sceneNarrator.toggle();
-          updateNarratorUI();
-        }
-        if (state.engine === 'yolo') {
-          startYoloLoop();
-        }
+      if (active && state.engine === 'yolo') {
+        startYoloLoop();
       }
     });
   }
 
-  // Main Mic Trigger -> Powered by On-Device Whisper Voice Agent!
+  // Main Mic Trigger -> Talk to Visual Companion!
   micBtn.addEventListener('click', () => {
-    localWhisper.toggle();
+    if (!companionAgent.isActive) {
+      companionAgent.toggle(state.detectedObjects);
+      updateCompanionUI(true, 'speaking');
+    } else {
+      localWhisper.toggle();
+    }
   });
 
-  // Cyber Command Input Bar (Built-in on-device search)
+  // Ask Companion Text Input Bar
   const dockCmdInput = document.getElementById('dockCmdInput');
   const dockCmdSubmitBtn = document.getElementById('dockCmdSubmitBtn');
 
@@ -821,7 +610,7 @@ function initEventListeners() {
     const text = (dockCmdInput.value || '').trim();
     if (!text) return;
     dockCmdInput.value = '';
-    voiceAgent.processSpokenCommand(text);
+    companionAgent.handleUserUtterance(text, state.detectedObjects);
   }
 
   if (dockCmdSubmitBtn && dockCmdInput) {
@@ -953,6 +742,10 @@ async function init() {
       setEngineMode('gemini');
     }
   }
+
+  // 4. Activate AI Visual Companion by default
+  companionAgent.isActive = true;
+  updateCompanionUI(true, 'idle');
 }
 
 // Start when DOM is ready

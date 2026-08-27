@@ -60,14 +60,9 @@
             <span id="engineLabel">YOLO (30 FPS)</span>
           </button>
 
-          <button class="telemetry-pill narrator-pill" id="narratorToggleBtn" title="Toggle Automatic Live Voice Narration of Detected Objects" style="cursor: pointer;">
-            <span id="narratorIcon">🗣️</span>
-            <span id="narratorLabel">NARRATE: OFF</span>
-          </button>
-
-          <button class="telemetry-pill companion-pill" id="companionToggleBtn" title="Toggle AI Visual Companion Mode for Blind & Low-Vision Users" style="cursor: pointer;">
+          <button class="telemetry-pill companion-pill active" id="companionToggleBtn" title="Toggle AI Visual Companion for Blind & Low-Vision Users" style="cursor: pointer;">
             <span id="companionIcon">🤝</span>
-            <span id="companionLabel">COMPANION: OFF</span>
+            <span id="companionLabel">COMPANION: LIVE</span>
           </button>
         </div>
 
@@ -107,33 +102,8 @@
           <span id="cameraStatusLabel">REAR CAMERA // 1280x720</span>
         </div>
 
-        <!-- Voice Interaction Toast Banner -->
-        <div class="voice-banner hidden" id="voiceBanner">
-          <div class="voice-icon-pulse" id="voiceIconPulse">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="23"></line>
-              <line x1="8" y1="23" x2="16" y2="23"></line>
-            </svg>
-          </div>
-          <div class="voice-banner-content">
-            <div class="voice-command-text" id="voiceCommandText">Listening for command...</div>
-            <div class="voice-response-text" id="voiceResponseText">Say: "Where is the bottle?" or "Identify the plant"</div>
-          </div>
-        </div>
-
-        <!-- Live Scene Narration Subtitle Banner -->
-        <div class="narration-banner hidden" id="narrationBanner">
-          <div class="narration-indicator">
-            <span class="narrator-dot"></span>
-            <span class="narrator-badge">LIVE NARRATION</span>
-          </div>
-          <div class="narration-text" id="narrationText">Observing your environment...</div>
-        </div>
-
-        <!-- Accessible Visual Companion Dialogue Card -->
-        <div class="companion-hud hidden" id="companionHud" role="region" aria-live="polite" aria-label="Visual Companion Dialogue">
+        <!-- Accessible Visual Companion Dialogue Card (Active Primary Companion) -->
+        <div class="companion-hud" id="companionHud" role="region" aria-live="polite" aria-label="AI Visual Companion Dialogue">
           <div class="companion-hud-header">
             <div class="companion-hud-title">
               <span class="companion-hud-dot"></span>
@@ -148,11 +118,11 @@
             </div>
             <div class="companion-bubble assistant" id="companionAiBubble">
               <span class="bubble-role">COMPANION</span>
-              <span class="bubble-text" id="companionAiText">Hello! I am your visual companion. I can see your surroundings and guide you. What would you like to know?</span>
+              <span class="bubble-text" id="companionAiText">Hello! I am your visual companion. I can see your surroundings in real time. Ask me where an object is, if your path is clear, or to describe the room!</span>
             </div>
           </div>
           <div class="companion-hud-footer">
-            <span>🎙️ Hands-free conversation active. Speak naturally or tap pill to pause.</span>
+            <span>🎙️ Hands-free conversation active. Speak naturally or type below.</span>
           </div>
         </div>
       </main>
@@ -178,8 +148,8 @@
           </svg>
         </button>
 
-        <!-- Main Voice Mic Trigger -->
-        <button class="mic-action-btn" id="micBtn" title="Voice Command: Push to Talk or Ask to Identify Object">
+        <!-- Main Mic Trigger: Talk to Companion -->
+        <button class="mic-action-btn" id="micBtn" title="Talk to AI Visual Companion (Push-to-Talk or Hands-Free)">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
             <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
@@ -188,10 +158,10 @@
           </svg>
         </button>
 
-        <!-- Cyber Command Text Input Bar -->
+        <!-- Cyber Command Text Input Bar: Ask Companion -->
         <div class="dock-cmd-bar" id="dockCmdBar">
-          <input type="text" id="dockCmdInput" placeholder="Find object... (e.g. 'bottle')" autocomplete="off" />
-          <button id="dockCmdSubmitBtn" type="button" title="Locate Object / Run Command">
+          <input type="text" id="dockCmdInput" placeholder="Ask your companion... (e.g. 'Where is my bottle?')" autocomplete="off" />
+          <button id="dockCmdSubmitBtn" type="button" title="Send to Visual Companion">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
