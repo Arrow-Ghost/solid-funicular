@@ -404,17 +404,19 @@ async function handleVoiceCommand(cmd) {
 
   // Voice narration toggle commands
   if (rawLower.includes('start narrat') || rawLower.includes('auto narrat') || rawLower.includes('turn on narrat') || rawLower.includes('enable narrat')) {
-    sceneNarrator.isEnabled = true;
+    if (!sceneNarrator.isEnabled) {
+      sceneNarrator.toggle(state.detectedObjects);
+    }
     updateNarratorUI();
     showVoiceBanner('Live Narrator', 'Live scene voice narration enabled.');
-    voiceAgent.speak('Live scene narration enabled. I will describe what I see.');
     return;
   }
   if (rawLower.includes('stop narrat') || rawLower.includes('pause narrat') || rawLower.includes('turn off narrat') || rawLower.includes('disable narrat')) {
-    sceneNarrator.isEnabled = false;
+    if (sceneNarrator.isEnabled) {
+      sceneNarrator.toggle();
+    }
     updateNarratorUI();
     showVoiceBanner('Live Narrator', 'Live scene voice narration paused.');
-    voiceAgent.speak('Live scene narration paused.');
     return;
   }
 
@@ -695,8 +697,16 @@ function initEventListeners() {
   // Narrator Toggle Pill in Header
   if (narratorToggleBtn) {
     narratorToggleBtn.addEventListener('click', () => {
-      sceneNarrator.toggle();
+      sceneNarrator.toggle(state.detectedObjects);
       updateNarratorUI();
+
+      if (sceneNarrator.isEnabled) {
+        if (state.engine === 'yolo') {
+          startYoloLoop();
+        } else if (state.engine === 'gemini') {
+          performGeminiScan();
+        }
+      }
     });
   }
 

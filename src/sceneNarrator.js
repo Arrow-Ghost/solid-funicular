@@ -1,7 +1,7 @@
 /**
  * sceneNarrator.js - Intelligent Automatic Scene Narrator
  * Continuously analyzes live detected objects, detects new entities,
- * and automatically speaks natural, conversational narrations of the scene.
+ * and automatically speaks natural, conversational narrations of the scene in real time.
  */
 
 export class SceneNarrator {
@@ -9,32 +9,43 @@ export class SceneNarrator {
     this.voiceAgent = options.voiceAgent || null;
     this.onNarration = options.onNarration || (() => {});
     this.isEnabled = false;
-    this.minIntervalMs = options.minIntervalMs || 7000; // Cooldown between periodic narrations
+    this.minIntervalMs = options.minIntervalMs || 6500; // Natural pacing between narrations
     this.lastNarrationTime = 0;
+    this.lastStatusTime = 0;
+    this.hasNarratedFirstScene = false;
     this.previousObjectNames = new Set();
-    this.narrationTimer = null;
     this.isMuted = false;
     this.phraseIndex = 0;
   }
 
   /**
    * Start or toggle auto-narration
+   * @param {Array} currentObjects - Optional current objects to narrate immediately
    */
-  toggle() {
+  toggle(currentObjects = []) {
     this.isEnabled = !this.isEnabled;
     if (this.isEnabled) {
       this.lastNarrationTime = 0;
+      this.lastStatusTime = 0;
+      this.hasNarratedFirstScene = false;
       this.previousObjectNames.clear();
-      const startMsg = 'Live scene narration active. Observing your environment...';
-      this.onNarration({ text: startMsg, isStatus: true });
+
       if (this.voiceAgent) {
-        this.voiceAgent.speak('Live scene narration enabled.');
+        this.voiceAgent.playChime('listen_start');
+      }
+
+      // If objects are already present on screen, narrate them immediately!
+      if (currentObjects && currentObjects.length > 0) {
+        this.evaluateScene(currentObjects);
+      } else {
+        const startMsg = 'Live narrator active. Scanning camera view for objects...';
+        this.onNarration({ text: startMsg, isStatus: true });
       }
     } else {
       const stopMsg = 'Live scene narration paused.';
       this.onNarration({ text: stopMsg, isStatus: true });
-      if (this.voiceAgent && this.voiceAgent.speechSynthesis) {
-        this.voiceAgent.speechSynthesis.cancel();
+      if (this.voiceAgent) {
+        this.voiceAgent.stopSpeaking();
       }
     }
     return this.isEnabled;
@@ -49,33 +60,69 @@ export class SceneNarrator {
   evaluateScene(objects = [], geminiSummary = null) {
     if (!this.isEnabled) return;
 
-    // Do not narrate if voice agent is currently listening or speaking
-    if (this.voiceAgent && (this.voiceAgent.isListening || this.voiceAgent.isSpeaking)) {
+    // Do not narrate while user is actively speaking or mic is listening
+    if (this.voiceAgent && this.voiceAgent.isListening) {
       return;
     }
-    if (window.speechSynthesis && window.speechSynthesis.speaking) {
+
+    // Chrome speech synthesis safety & resume check
+    if (window.speechSynthesis) {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      if (window.speechSynthesis.speaking) {
+        return;
+      }
+    }
+    if (this.voiceAgent && this.voiceAgent.isSpeaking) {
       return;
     }
 
     const now = Date.now();
     const currentNames = new Set(objects.map((o) => o.name.toLowerCase()));
 
-    // Check for newly appeared or disappeared objects
-    const newItems = [...currentNames].filter((name) => !this.previousObjectNames.has(name));
-    const isFirstNarration = this.lastNarrationTime === 0;
-    const timeSinceLast = now - this.lastNarrationTime;
+    // Case A: No objects detected in view
+    if (objects.length === 0) {
+      if (this.hasNarratedFirstScene && this.previousObjectNames.size > 0 && (now - this.lastNarrationTime >= 5000)) {
+        this.previousObjectNames.clear();
+        this.speakNarration('The visual field is now clear of recognizable objects.');
+        this.lastNarrationTime = now;
+      } else if (!this.hasNarratedFirstScene && (now - this.lastStatusTime >= 3500)) {
+        this.onNarration({
+          text: 'Scanning camera feed... Point camera towards people, laptops, bottles, cups, or plants.',
+          isStatus: true
+        });
+        this.lastStatusTime = now;
+      }
+      return;
+    }
 
-    // Trigger conditions:
-    // 1. First narration upon activation
-    // 2. Significant new object entered the frame AND at least 4s passed
-    // 3. Periodic cooldown elapsed (7s) AND objects exist
-    const shouldTriggerNewItem = newItems.length > 0 && timeSinceLast >= 4500;
-    const shouldTriggerPeriodic = timeSinceLast >= this.minIntervalMs;
-
-    if (isFirstNarration || shouldTriggerNewItem || shouldTriggerPeriodic) {
-      this.narrate(objects, newItems, geminiSummary);
+    // Case B: Objects are detected!
+    // 1. If we haven't narrated the initial scene yet, DO IT IMMEDIATELY (0ms wait)!
+    if (!this.hasNarratedFirstScene) {
+      this.hasNarratedFirstScene = true;
       this.lastNarrationTime = now;
       this.previousObjectNames = currentNames;
+      this.narrate(objects, [], geminiSummary);
+      return;
+    }
+
+    // 2. Check for newly appeared items
+    const newItems = [...currentNames].filter((name) => !this.previousObjectNames.has(name));
+    const timeSinceLast = now - this.lastNarrationTime;
+
+    if (newItems.length > 0 && timeSinceLast >= 3500) {
+      this.lastNarrationTime = now;
+      this.previousObjectNames = currentNames;
+      this.narrate(objects, newItems, geminiSummary);
+      return;
+    }
+
+    // 3. Periodic natural scene overview if cooldown elapsed
+    if (timeSinceLast >= this.minIntervalMs) {
+      this.lastNarrationTime = now;
+      this.previousObjectNames = currentNames;
+      this.narrate(objects, [], geminiSummary);
     }
   }
 
@@ -83,13 +130,7 @@ export class SceneNarrator {
    * Synthesize natural conversational narration
    */
   narrate(objects, newItems = [], geminiSummary = null) {
-    if (objects.length === 0) {
-      if (this.previousObjectNames.size > 0) {
-        const clearMsg = 'Your visual field is currently clear of recognizable objects.';
-        this.speakNarration(clearMsg);
-      }
-      return;
-    }
+    if (!objects || objects.length === 0) return;
 
     // If Gemini provided a deep natural scene summary, use it
     if (geminiSummary && geminiSummary.length > 10) {
@@ -98,10 +139,10 @@ export class SceneNarrator {
     }
 
     // If specific new items entered the frame
-    if (newItems.length > 0 && this.lastNarrationTime > 0) {
+    if (newItems.length > 0) {
       const formattedNew = newItems.map((n) => this.formatItemName(n, objects)).join(' and ');
       const newIntros = [
-        `I now see a ${formattedNew} in view.`,
+        `I now spot a ${formattedNew} in view.`,
         `A ${formattedNew} has appeared on screen.`,
         `Notice: detecting a ${formattedNew}.`
       ];

@@ -216,35 +216,57 @@ export class VoiceAgent {
   speak(text) {
     if (!this.ttsEnabled || !this.speechSynthesis) return;
 
-    // Cancel any previous speaking
-    this.speechSynthesis.cancel();
+    try {
+      if (this.speechSynthesis.paused) {
+        this.speechSynthesis.resume();
+      }
+      // Cancel any prior speaking to avoid queue lock
+      this.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.05; // Slightly brisk, modern assistant speed
-    utterance.pitch = 1.0;
+      const utterance = new SpeechSynthesisUtterance(text);
+      // Retain reference on window to prevent Chrome GC bug where onend never fires
+      window.__activeSpeechUtterance = utterance;
 
-    // Choose preferred voice if available
-    const voices = this.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(
-      (v) =>
-        (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha')) &&
-        v.lang.startsWith('en')
-    );
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
+      utterance.rate = 1.05; // Brisk modern assistant speed
+      utterance.pitch = 1.0;
+
+      // Choose preferred voice if available
+      const voices = this.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(
+        (v) =>
+          (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Jenny')) &&
+          v.lang.startsWith('en')
+      );
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+
+      // Safety watchdog: ensure isSpeaking is always reset after 8 seconds
+      if (this._speakingWatchdog) clearTimeout(this._speakingWatchdog);
+      this._speakingWatchdog = setTimeout(() => {
+        this.isSpeaking = false;
+        window.__activeSpeechUtterance = null;
+      }, 8000);
+
+      utterance.onstart = () => {
+        this.isSpeaking = true;
+      };
+      utterance.onend = () => {
+        this.isSpeaking = false;
+        if (this._speakingWatchdog) clearTimeout(this._speakingWatchdog);
+        window.__activeSpeechUtterance = null;
+      };
+      utterance.onerror = () => {
+        this.isSpeaking = false;
+        if (this._speakingWatchdog) clearTimeout(this._speakingWatchdog);
+        window.__activeSpeechUtterance = null;
+      };
+
+      this.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('Speech synthesis error:', err);
+      this.isSpeaking = false;
     }
-
-    utterance.onstart = () => {
-      this.isSpeaking = true;
-    };
-    utterance.onend = () => {
-      this.isSpeaking = false;
-    };
-    utterance.onerror = () => {
-      this.isSpeaking = false;
-    };
-
-    this.speechSynthesis.speak(utterance);
   }
 
   /**
