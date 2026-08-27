@@ -4,6 +4,8 @@
  * Zero external servers, zero Google speech endpoints, zero network restrictions.
  */
 
+import { AiNoiseSuppressionPipeline } from './noiseSuppressor.js';
+
 export class LocalWhisperAgent {
   constructor(options = {}) {
     this.onCommand = options.onCommand || (() => {});
@@ -21,6 +23,8 @@ export class LocalWhisperAgent {
     this.recordTimeout = null;
     this.processorNode = null;
     this.sourceNode = null;
+    this.noisePipeline = null;
+    this.silentGain = null;
   }
 
   /**
@@ -83,7 +87,7 @@ export class LocalWhisperAgent {
   }
 
   /**
-   * Start recording user voice from microphone at 16kHz
+   * Start recording user voice from microphone with AI Background Noise Suppression
    */
   async startRecording() {
     if (this.isRecording) return;
@@ -93,9 +97,18 @@ export class LocalWhisperAgent {
     }
 
     try {
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 1. Browser & Hardware-level Acoustic Noise Cancellation & Echo Cancellation
+      const constraints = AiNoiseSuppressionPipeline.getAudioConstraints();
+      this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
+
+      // 2. Initialize Neural/DSP Noise Suppression Pipeline
+      this.noisePipeline = new AiNoiseSuppressionPipeline(this.audioContext);
+      await this.noisePipeline.initialize();
+
+      // Route microphone through noise suppression chain
+      const denoisedAudioNode = this.noisePipeline.connectSource(this.sourceNode);
 
       this.audioChunks = [];
       this.hasSpoken = false;
@@ -104,37 +117,39 @@ export class LocalWhisperAgent {
 
       this.processorNode.onaudioprocess = (e) => {
         if (!this.isRecording) return;
-        const channelData = e.inputBuffer.getChannelData(0);
-        this.audioChunks.push(new Float32Array(channelData));
+        const rawChannelData = e.inputBuffer.getChannelData(0);
 
-        // Voice Activity Detection (VAD): measure volume energy
-        let sum = 0;
-        for (let i = 0; i < channelData.length; i++) {
-          sum += channelData[i] * channelData[i];
-        }
-        const rms = Math.sqrt(sum / channelData.length);
+        // 3. Real-Time Spectral Noise Gating: silences background hum/chatter between words
+        const { cleanedBuffer, isSpeech } = this.noisePipeline.cleanAudioBuffer(rawChannelData);
+        this.audioChunks.push(cleanedBuffer);
+
         const now = Date.now();
-
-        if (rms > 0.018) {
-          // User is actively speaking
+        if (isSpeech) {
           this.hasSpoken = true;
           this.lastSpeechTime = now;
         } else if (this.hasSpoken && now - this.lastSpeechTime > 1350) {
-          // Natural pause/silence detected after speaking -> auto-stop and transcribe!
+          // Natural pause detected after speaking -> auto-stop and transcribe!
           this.stopRecordingAndTranscribe();
         }
       };
 
-      this.sourceNode.connect(this.processorNode);
-      this.processorNode.connect(this.audioContext.destination);
+      // Connect denoised audio to processor
+      denoisedAudioNode.connect(this.processorNode);
+
+      // Connect processor to silent gain node (prevents speaker acoustic feedback)
+      this.silentGain = this.audioContext.createGain();
+      this.silentGain.gain.value = 0;
+      this.processorNode.connect(this.silentGain);
+      this.silentGain.connect(this.audioContext.destination);
 
       this.isRecording = true;
       this.onStatus({
         status: 'recording',
-        message: 'Listening... (Speak naturally, auto-detects when you finish)'
+        noiseSuppression: this.noisePipeline.activeType,
+        message: 'Listening... (AI Background Noise Suppression Active)'
       });
 
-      // Max safety timeout (e.g. 7.5 seconds)
+      // Max safety timeout (7.5 seconds)
       this.recordTimeout = setTimeout(() => {
         if (this.isRecording) {
           this.stopRecordingAndTranscribe();
@@ -159,7 +174,15 @@ export class LocalWhisperAgent {
 
     this.onStatus({ status: 'transcribing', message: 'Transcribing voice locally...' });
 
-    // Clean up audio nodes
+    // Clean up audio nodes & noise suppression pipeline
+    if (this.noisePipeline) {
+      this.noisePipeline.destroy();
+      this.noisePipeline = null;
+    }
+    if (this.silentGain) {
+      this.silentGain.disconnect();
+      this.silentGain = null;
+    }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
     }
