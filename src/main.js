@@ -8,6 +8,7 @@ import { CameraManager } from './camera.js';
 import { GeminiVisionClient } from './geminiVision.js';
 import { YoloVisionDetector } from './yoloVision.js';
 import { VoiceAgent } from './voiceAgent.js';
+import { LocalWhisperAgent } from './whisperVoiceAgent.js';
 import { HudRenderer } from './hudRenderer.js';
 
 // DOM Elements
@@ -90,6 +91,33 @@ const voiceAgent = new VoiceAgent({
   onCommand: handleVoiceCommand,
   onTranscript: handleVoiceTranscript,
   onStateChange: handleVoiceStateChange
+});
+
+// 100% On-Device Whisper Voice Agent (Runs in WebAssembly / WebGPU - Zero Cloud Speech Servers)
+const localWhisper = new LocalWhisperAgent({
+  onCommand: (cmdText) => {
+    voiceAgent.processSpokenCommand(cmdText);
+  },
+  onStatus: (status) => {
+    if (status.status === 'recording') {
+      micBtn.classList.add('listening');
+      showVoiceBanner('Listening to Voice...', 'Speak your command now (tap mic to stop)', 0);
+      voiceAgent.playChime('listen_start');
+    } else if (status.status === 'transcribing') {
+      micBtn.classList.remove('listening');
+      showVoiceBanner('Analyzing Audio...', 'Transcribing speech locally with on-device Whisper...', 0);
+    } else if (status.status === 'loading') {
+      showVoiceBanner('Voice Model', status.message, 3000);
+    } else if (status.status === 'error') {
+      micBtn.classList.remove('listening');
+      showVoiceBanner('Microphone Notice', status.message, 5000);
+    } else {
+      micBtn.classList.remove('listening');
+    }
+  },
+  onTranscript: ({ final }) => {
+    showVoiceBanner('Heard Voice Command', `"${final}"`, 4000);
+  }
 });
 
 const hudRenderer = new HudRenderer(canvasEl, videoEl, {
@@ -600,9 +628,9 @@ function initEventListeners() {
     });
   }
 
-  // Mic Trigger Button
+  // Main Mic Trigger -> Powered by On-Device Whisper Voice Agent!
   micBtn.addEventListener('click', () => {
-    voiceAgent.toggleListening();
+    localWhisper.toggle();
   });
 
   // Cyber Command Input Bar (Built-in on-device search)
@@ -718,7 +746,7 @@ function initEventListeners() {
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' && e.target === document.body) {
       e.preventDefault();
-      voiceAgent.toggleListening();
+      localWhisper.toggle();
     }
   });
 }
@@ -732,7 +760,10 @@ async function init() {
   // 1. Start Camera Feed
   await cameraManager.start();
 
-  // 2. Initialize Real-Time YOLO Detector
+  // 2. Pre-load on-device Whisper voice model in background
+  localWhisper.loadEngine();
+
+  // 3. Initialize Real-Time YOLO Detector
   if (state.engine === 'yolo') {
     try {
       await yoloDetector.loadModel();
